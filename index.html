@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Konnect - Petty Cash Management</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="sidebar">
+        <div class="logo">Kupos.cl</div>
+        <nav>
+            <ul>
+                <li onclick="showSection('view-admin-global')">📦 Gestión Cajas Chicas</li>
+                <li onclick="showSection('view-plan-cuentas')">📑 Plan Cuentas</li>
+                <li onclick="showSection('view-gastos-ingresos')">💰 Gastos e Ingresos</li>
+            </ul>
+        </nav>
+    </div>
+
+    <main class="content">
+        <section id="view-admin-global" class="view">
+            <div class="header-actions">
+                <h2>Mantenedor de Cajas Chicas</h2>
+                <button class="btn-primary" onclick="openCreateModal()">+ Crear Nueva Caja</button>
+            </div>
+            <div class="card">
+                <p style="font-size: 11px; color: #888;">* Doble clic en la fila para ver historial.</p>
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>Sucursal</th>
+                            <th>Fondo Fijo</th>
+                            <th>Fondo Usado</th>
+                            <th>Mín (%)</th>
+                            <th>Máx (%)</th>
+                            <th>Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tbody-sucursales"></tbody>
+                </table>
+            </div>
+        </section>
+
+        <section id="view-plan-cuentas" class="view" style="display:none;">
+            <div class="header-actions">
+                <h2>Plan de Cuentas Contables</h2>
+                <button class="btn-success" onclick="openAccountModal()">+ Nueva Cuenta</button>
+            </div>
+            <div class="card">
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>Código</th>
+                            <th>Descripción</th>
+                            <th>Tipo</th>
+                            <th>Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tbody-cuentas"></tbody>
+                </table>
+            </div>
+        </section>
+
+        <section id="view-gastos-ingresos" class="view" style="display:none;">
+            <div class="header-actions">
+                <h2>Ingresar Gastos/Ingresos</h2>
+                <div class="tabs-mockup">
+                    <span class="tab active">Crear Nueva Transacción</span>
+                    <span class="tab">Transacciones Pendientes</span>
+                </div>
+            </div>
+
+            <div class="card form-container">
+                <div class="form-row">
+                    <label>Fecha</label>
+                    <input type="date" id="gi-fecha" value="2026-03-11">
+                </div>
+
+                <div class="form-row">
+                    <label>Transacción*</label>
+                    <select id="gi-tipo-trans" onchange="renderCategoriasEnGastos()">
+                        <option value="EGRESO">Gastos</option>
+                        <option value="INGRESO">Ingresos</option>
+                    </select>
+                </div>
+
+                <div class="form-row">
+                    <label>Reflejar en</label>
+                    <div class="radio-group">
+                        <input type="radio" name="reflejar" id="ref-propio" checked onclick="toggleUserSelector()"> Propio
+                        <input type="radio" name="reflejar" id="ref-otro" onclick="toggleUserSelector()"> Otro Usuario
+                    </div>
+                </div>
+
+                <div id="user-selector-container" class="form-row" style="display:none;">
+                    <label>Seleccionar Usuario*</label>
+                    <select id="gi-usuario-otro">
+                        <option value="">Seleccione usuario...</option>
+                        <option value="1">Admin_Norte</option>
+                        <option value="2">Cajero_Sur</option>
+                    </select>
+                </div>
+
+                <div class="form-row">
+                    <label>Transacción para*</label>
+                    <select id="gi-categoria" onchange="handleCategoryChange()">
+                    </select>
+                </div>
+
+                <div id="extra-fields-ingreso" style="display:none; background: #f0f7ff; padding: 20px; border-radius: 4px; margin-bottom: 20px; border-left: 4px solid #007bff; margin-left: 100px; max-width: 600px;">
+                    
+                    <div class="form-row">
+                        <label>Concepto*</label>
+                        <input type="text" id="gi-concepto" placeholder="Ej: Devolución de excedente">
+                    </div>
+
+                    <div class="form-row">
+                        <label>Tipo Documento*</label>
+                        <select id="gi-tipo-doc">
+                            <option value="BOLETA">Boleta</option>
+                            <option value="FACTURA">Factura</option>
+                            <option value="RECIBO">Recibo</option>
+                            <option value="OTRO">Otro</option>
+                        </select>
+                    </div>
+
+                </div>
+
+                <div id="voucher-input-container" style="display:none; background: #fff5f2; padding: 10px; border-radius: 5px;">
+                    <label>N° Voucher Reembolso*</label>
+                    <input type="text" id="gi-voucher-ref" onkeyup="validateVoucherRealTime()">
+                </div>
+
+                <div class="form-row">
+                    <label>Tipo de pago*</label>
+                    <select id="gi-pago">
+                        <option>Efectivo</option>
+                        <option>Tarjeta</option>
+                        <option>Yape/Plin</option>
+                        <option>Transferencia</option>
+                    </select>
+                </div>
+
+                <div class="form-row">
+                    <label>Vendedor</label>
+                    <select id="gi-vendedor"><option value="">Select...</option></select>
+                </div>
+
+                <div class="form-row">
+                    <label>Monto*</label>
+                    <input type="number" id="gi-monto" placeholder="0.00">
+                </div>
+
+                <div class="form-row">
+                    <label>Pagado a*</label>
+                    <input type="text" id="gi-pagado-a">
+                </div>
+
+                <div class="form-row">
+                    <label>Observaciones*</label>
+                    <textarea id="gi-obs" rows="3"></textarea>
+                </div>
+
+                <div class="form-buttons" style="margin-left: 220px;">
+                    <button class="btn-confirm" onclick="saveGeneralTransaction()">Crear</button>
+                    <button class="btn-cancel" onclick="showSection('view-admin-global')">Cancelar</button>
+                </div>
+            </div>
+        </section>
+
+        <div id="modal-crud" class="modal" style="display:none;">
+            <div class="modal-content card">
+                <h3 id="modal-title">Configurar Sucursal</h3>
+                <hr>
+                <div class="form-group"><label>Nombre:</label><input type="text" id="input-name"></div>
+                <div class="form-group"><label>Fondo ($):</label><input type="number" id="input-fund"></div>
+                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:15px;">
+                    <div class="form-group"><label>Mín (%)</label><input type="number" id="input-min" value="40"></div>
+                    <div class="form-group"><label>Máx (%)</label><input type="number" id="input-max" value="70"></div>
+                </div>
+                <div class="modal-buttons" style="margin-top:20px;">
+                    <input type="hidden" id="edit-id">
+                    <button class="btn-confirm" onclick="saveAgency()">Confirmar</button>
+                    <button class="btn-cancel" onclick="closeModal('modal-crud')">Cancelar</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="modal-history" class="modal" style="display:none;">
+            <div class="modal-content card" style="width: 750px;">
+                <h3>Historial de Sucursal: <span id="history-agency-name"></span></h3>
+                <hr>
+                <div style="max-height: 400px; overflow-y: auto; margin-bottom: 20px;">
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>Fecha</th>
+                                <th>Concepto/Descripción</th>
+                                <th>Monto</th>
+                                <th>Voucher / Sel.</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tbody-history"></tbody>
+                    </table>
+                </div>
+                <div class="modal-buttons-history" style="display: flex; gap: 10px; justify-content: flex-end;">
+                </div>
+            </div>
+        </div>
+
+        <div id="modal-cuenta" class="modal" style="display:none;">
+            <div class="modal-content card">
+                <h3>Nueva Cuenta Contable</h3>
+                <div class="form-group"><label>Código:</label><input type="text" id="acc-code"></div>
+                <div class="form-group"><label>Nombre:</label><input type="text" id="acc-name"></div>
+                <div class="form-group">
+                    <label>Tipo:</label>
+                    <select id="acc-type"><option value="EGRESO">Egreso</option><option value="INGRESO">Ingreso</option></select>
+                </div>
+                <button class="btn-confirm" onclick="saveAccount()">Guardar</button>
+                <button class="btn-cancel" onclick="closeModal('modal-cuenta')">Cancelar</button>
+            </div>
+        </div>
+    </main>
+    <script src="script.js"></script>
+</body>
+</html>
