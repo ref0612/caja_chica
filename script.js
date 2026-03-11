@@ -2,8 +2,6 @@
 const INITIAL_DATA = {
     agencies: [{ id: 1, name: "Agencia Santiago", fund: 1000, minT: 40, maxT: 70, movements: [] }],
     chartOfAccounts: [
-        { id: "102.01", name: "Ingreso Caja Chica", type: "INGRESO" },
-        { id: "602.01", name: "Reembolso Caja Chica", type: "EGRESO" },
         { id: "601.01", name: "Combustible", type: "EGRESO" }
     ]
 };
