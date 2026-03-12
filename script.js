@@ -53,6 +53,7 @@ let db = (() => {
             fund: 1000,
             minT: 40,
             maxT: 70,
+            cajaChicaActiva: true,
             movements: []   // Estructura de cada movimiento:
                             // { id, date, category, type, tipoDoc, serie,
                             //   correlativo, concepto, pagadoA, amount,
@@ -182,8 +183,10 @@ window.renderSucursales = function() {
                 ? 'var(--warning)'
                 : 'var(--success)';
 
+        const activa = a.cajaChicaActiva !== false; // default true si no existe
+
         return `
-        <tr class="row-hover" ondblclick="viewHistory(${a.id})" title="Doble clic para ver historial">
+        <tr class="row-hover ${activa ? '' : 'row-inactiva'}" ondblclick="viewHistory(${a.id})" title="Doble clic para ver historial">
             <td>
                 <strong>${escHtml(a.name)}</strong>
                 <div class="agency-id">ID: ${a.id}</div>
@@ -202,6 +205,20 @@ window.renderSucursales = function() {
             </td>
             <td>${a.minT}%</td>
             <td>${a.maxT}%</td>
+            <td>
+                <div class="estatus-cell" onclick="event.stopPropagation()">
+                    <label class="toggle-switch toggle-sm">
+                        <input type="checkbox" ${activa ? 'checked' : ''}
+                            onchange="toggleCajaChica(${a.id}, this.checked)">
+                        <span class="toggle-track">
+                            <span class="toggle-thumb"></span>
+                        </span>
+                    </label>
+                    <span class="estatus-label ${activa ? 'estatus-on' : 'estatus-off'}">
+                        ${activa ? 'Activa' : 'Inactiva'}
+                    </span>
+                </div>
+            </td>
             <td class="actions-cell">
                 <button class="btn-sm btn-primary"
                     onclick="event.stopPropagation(); editAgency(${a.id})">Editar</button>
@@ -230,6 +247,8 @@ window.openCreateModal = function() {
     document.getElementById('input-fund').value = '';
     document.getElementById('input-min').value  = 40;
     document.getElementById('input-max').value  = 70;
+    document.getElementById('input-activa').checked = true;
+    window.updateToggleLabel();
     document.getElementById('modal-title').textContent = 'Nueva Caja Chica';
     document.getElementById('modal-crud').style.display = 'flex';
 };
@@ -238,11 +257,14 @@ window.openCreateModal = function() {
 window.editAgency = function(id) {
     const a = db.agencies.find(a => a.id == id);
     if (!a) return;
+    const activa = a.cajaChicaActiva !== false;
     document.getElementById('edit-id').value        = a.id;
     document.getElementById('input-name').value     = a.name;
     document.getElementById('input-fund').value     = a.fund;
     document.getElementById('input-min').value      = a.minT;
     document.getElementById('input-max').value      = a.maxT;
+    document.getElementById('input-activa').checked = activa;
+    window.updateToggleLabel();
     document.getElementById('modal-title').textContent = 'Editar Caja: ' + a.name;
     document.getElementById('modal-crud').style.display = 'flex';
 };
@@ -260,11 +282,13 @@ window.saveAgency = function() {
     if (isNaN(minT) || isNaN(maxT)) return showToast('Ingrese los porcentajes de alerta.', 'warning');
     if (minT >= maxT)   return showToast('El mínimo debe ser menor al máximo.', 'warning');
 
+    const cajaChicaActiva = document.getElementById('input-activa').checked;
+
     if (id) {
         const idx = db.agencies.findIndex(a => a.id == id);
-        if (idx !== -1) Object.assign(db.agencies[idx], { name, fund, minT, maxT });
+        if (idx !== -1) Object.assign(db.agencies[idx], { name, fund, minT, maxT, cajaChicaActiva });
     } else {
-        db.agencies.push({ id: Date.now(), name, fund, minT, maxT, movements: [] });
+        db.agencies.push({ id: Date.now(), name, fund, minT, maxT, cajaChicaActiva, movements: [] });
     }
 
     saveToLocalStorage();
@@ -392,14 +416,34 @@ window.initGastosForm = function() {
     window.renderCategoriasEnGastos();
 };
 
-/** Puebla el select de categorías según el tipo de transacción */
+/** Puebla el select de categorías según el tipo de transacción.
+ *  Si la caja activa tiene cajaChicaActiva === false, oculta 102.01 y 602.01.
+ */
 window.renderCategoriasEnGastos = function() {
     const select = document.getElementById('gi-categoria');
     if (!select) return;
 
-    const tipo = document.getElementById('gi-tipo-trans').value;
+    const tipo    = document.getElementById('gi-tipo-trans').value;
+    const agencia = db.agencies.find(a => a.id === activeAgencyId);
+    const ccActiva = agencia ? agencia.cajaChicaActiva !== false : true;
+
+    // Banner de aviso si la caja chica está desactivada
+    const banner = document.getElementById('cc-inactiva-banner');
+    if (banner) banner.style.display = ccActiva ? 'none' : 'flex';
+
     const filtradas = [...CUENTAS_FIJAS, ...db.chartOfAccounts]
-        .filter(x => x.type === tipo);
+        .filter(x => x.type === tipo)
+        .filter(x => {
+            // Si la caja chica está inactiva, excluir las cuentas de control
+            if (!ccActiva && (x.id === '102.01' || x.id === '602.01')) return false;
+            return true;
+        });
+
+    if (filtradas.length === 0) {
+        select.innerHTML = '<option value="">— Sin categorías disponibles —</option>';
+        window.handleCategoryChange();
+        return;
+    }
 
     select.innerHTML = filtradas
         .map(x => `<option value="${x.id}">${x.id} — ${escHtml(x.name)}</option>`)
@@ -864,6 +908,53 @@ window.renderArqueo = function() {
     document.getElementById('arq-ventas').textContent  = `$${(ventaBase + ingresosExtra).toLocaleString('es-CL')}`;
     document.getElementById('arq-egresos').textContent = `-$${egresosTotales.toLocaleString('es-CL')}`;
     document.getElementById('arq-saldo').textContent   = `$${saldoFinal.toLocaleString('es-CL')}`;
+};
+
+// ─────────────────────────────────────────────────────────────
+// 9b. TOGGLE ESTATUS CAJA CHICA
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Activa o desactiva la caja chica de una sucursal directamente desde la tabla.
+ * Cuando está inactiva, las cuentas 102.01 y 602.01 quedan ocultas en el formulario
+ * de Gastos e Ingresos para los cajeros de esa caja.
+ */
+window.toggleCajaChica = function(agencyId, estado) {
+    const a = db.agencies.find(x => x.id == agencyId);
+    if (!a) return;
+
+    a.cajaChicaActiva = estado;
+    saveToLocalStorage();
+
+    const nombre = escHtml(a.name);
+    const msg    = estado
+        ? `Caja Chica activada para "${nombre}"`
+        : `Caja Chica desactivada para "${nombre}"`;
+    showToast(msg, estado ? 'success' : 'warning');
+
+    window.renderSucursales();
+
+    // Si el usuario activo es esta caja y está en el formulario, refrescar categorías
+    if (activeAgencyId === agencyId) {
+        const formVisible = document.getElementById('view-gastos-ingresos')?.style.display !== 'none';
+        if (formVisible) window.renderCategoriasEnGastos();
+    }
+};
+
+/**
+ * Actualiza el texto del label del toggle en el modal CRUD según el estado del checkbox.
+ */
+window.updateToggleLabel = function() {
+    const checked = document.getElementById('input-activa')?.checked;
+    const label   = document.getElementById('toggle-label');
+    if (!label) return;
+    if (checked) {
+        label.textContent = 'Activa — el cajero puede usar Caja Chica';
+        label.className   = 'toggle-label-text toggle-on';
+    } else {
+        label.textContent = 'Inactiva — categorías de Caja Chica ocultas';
+        label.className   = 'toggle-label-text toggle-off';
+    }
 };
 
 // ─────────────────────────────────────────────────────────────
