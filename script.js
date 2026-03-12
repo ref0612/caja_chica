@@ -768,11 +768,15 @@ function showVoucherPanel(vId, total, agencyId) {
 // ─────────────────────────────────────────────────────────────
 
 /**
- * Renderiza el arqueo estrictamente por la caja activa.
- * CORRECCIÓN:
- *   - Usa `category` para filtrar (corregido en saveGeneralTransaction)
- *   - Muestra columnas completas (fecha, referencia, pagadoA, monto, impacto)
- *   - Saldo = venta base − egresos + ingresos CC
+ * Renderiza el arqueo de caja completo por la caja activa.
+ *
+ * REGLA DE NEGOCIO:
+ *   - viewHistory  → solo 102.01 y 602.01  (ciclo de caja chica)
+ *   - renderArqueo → TODOS los movimientos  (liquidación completa del cajero)
+ *
+ * Lógica de impacto:
+ *   - type === 'INGRESO' → suma al saldo  (+)
+ *   - type === 'EGRESO'  → resta al saldo (−)
  */
 window.renderArqueo = function() {
     const agencia = db.agencies.find(a => a.id === activeAgencyId);
@@ -782,47 +786,73 @@ window.renderArqueo = function() {
     document.getElementById('arqueo-user-label').textContent = selectorText;
 
     const tbody          = document.getElementById('tbody-arqueo');
-    const ventaBase      = 5000; // Placeholder de ventas externas al sistema
+    const ventaBase      = 5000; // Placeholder apertura de turno
     let   egresosTotales = 0;
     let   ingresosExtra  = 0;
 
-    // Solo movimientos de cuentas de caja chica de ESTA caja
-    const movCC = agencia.movements.filter(m =>
-        m.category === '102.01' || m.category === '602.01'
-    );
+    // ── TODOS los movimientos de esta caja, sin filtro de categoría ──
+    const todosMovimientos = agencia.movements;
 
-    // Fila de apertura
+    // Catálogo completo para resolver nombres de cuenta
+    const allAccounts = [...CUENTAS_FIJAS, ...db.chartOfAccounts];
+    const getNombreCuenta = (catId) => {
+        const cuenta = allAccounts.find(c => c.id === catId);
+        return cuenta ? cuenta.name : catId;
+    };
+
+    // Fila de apertura de turno
     tbody.innerHTML = `
         <tr>
             <td><small>—</small></td>
             <td><span class="badge-type badge-ingreso">APERTURA</span></td>
-            <td>Ventas base del turno</td>
+            <td>Apertura de turno</td>
             <td>—</td>
             <td class="amount-cell">$${ventaBase.toLocaleString('es-CL')}</td>
             <td class="impact-positive">+ $${ventaBase.toLocaleString('es-CL')}</td>
         </tr>
     `;
 
-    movCC.forEach(m => {
-        const esEgreso = m.category === '602.01';
-        if (esEgreso) egresosTotales += parseFloat(m.amount || 0);
-        else          ingresosExtra  += parseFloat(m.amount || 0);
+    if (todosMovimientos.length === 0) {
+        tbody.innerHTML += `
+            <tr>
+                <td colspan="6" class="empty-row">Sin movimientos registrados en este turno.</td>
+            </tr>
+        `;
+    }
 
-        const ref = (m.serie && m.correlativo) ? `${m.serie}–${m.correlativo}` : (m.voucherId || m.correlativo || '—');
+    todosMovimientos.forEach(m => {
+        const esEgreso = m.type === 'EGRESO';
+        const monto    = parseFloat(m.amount || 0);
+
+        if (esEgreso) egresosTotales += monto;
+        else          ingresosExtra  += monto;
+
+        // Referencia: priorizar serie-correlativo, luego voucher, luego concepto
+        const ref = (m.serie && m.correlativo)
+            ? `${escHtml(m.serie)}–${escHtml(m.correlativo)}`
+            : m.voucherId
+                ? escHtml(m.voucherId)
+                : '—';
+
+        const nombreCuenta = getNombreCuenta(m.category);
+        const badgeClass   = esEgreso ? 'badge-egreso' : 'badge-ingreso';
 
         tbody.innerHTML += `
             <tr class="row-hover">
                 <td><small>${m.date || '—'}</small></td>
                 <td>
-                    <span class="badge-type ${esEgreso ? 'badge-egreso' : 'badge-ingreso'}">
-                        ${esEgreso ? 'REEMBOLSO CC' : 'INGRESO CC'}
+                    <span class="badge-type ${badgeClass}" title="${escHtml(m.category)}">
+                        ${escHtml(nombreCuenta)}
                     </span>
                 </td>
-                <td>${escHtml(ref)} ${m.concepto ? `<small class="text-muted">/ ${escHtml(m.concepto)}</small>` : ''}</td>
+                <td>
+                    ${ref}
+                    ${m.concepto ? `<br><small class="text-muted">${escHtml(m.concepto)}</small>` : ''}
+                </td>
                 <td>${escHtml(m.pagadoA || '—')}</td>
-                <td class="amount-cell">$${parseFloat(m.amount || 0).toLocaleString('es-CL')}</td>
+                <td class="amount-cell">$${monto.toLocaleString('es-CL')}</td>
                 <td class="${esEgreso ? 'impact-negative' : 'impact-positive'}">
-                    ${esEgreso ? '−' : '+'} $${parseFloat(m.amount || 0).toLocaleString('es-CL')}
+                    ${esEgreso ? '−' : '+'} $${monto.toLocaleString('es-CL')}
                 </td>
             </tr>
         `;
@@ -830,6 +860,7 @@ window.renderArqueo = function() {
 
     const saldoFinal = ventaBase - egresosTotales + ingresosExtra;
 
+    // Stat cards
     document.getElementById('arq-ventas').textContent  = `$${(ventaBase + ingresosExtra).toLocaleString('es-CL')}`;
     document.getElementById('arq-egresos').textContent = `-$${egresosTotales.toLocaleString('es-CL')}`;
     document.getElementById('arq-saldo').textContent   = `$${saldoFinal.toLocaleString('es-CL')}`;
