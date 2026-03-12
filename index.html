@@ -16,7 +16,7 @@
     <aside class="sidebar">
         <div class="sidebar-header">
             <div class="logo">
-                <span class="logo-icon">k</span>
+                <span class="logo-icon">K</span>
                 <span class="logo-text">onnect</span>
             </div>
             <div class="user-context-box">
@@ -28,22 +28,26 @@
         <nav class="sidebar-nav">
             <ul>
                 <li class="nav-item active" data-section="view-admin-global" onclick="showSection('view-admin-global', this)">
-                    <span class="nav-icon">⬡</span> Gestión Cajas
+                    <span class="nav-icon">⬡</span> Gestión de Caja Chica
                 </li>
                 <li class="nav-item" data-section="view-plan-cuentas" onclick="showSection('view-plan-cuentas', this)">
-                    <span class="nav-icon">⊞</span> Plan de Cuentas
+                    <span class="nav-icon">⊞</span> Categorias Gastos/Ingresos
                 </li>
                 <li class="nav-item" data-section="view-gastos-ingresos" onclick="showSection('view-gastos-ingresos', this)">
-                    <span class="nav-icon">◈</span> Gastos e Ingresos
+                    <span class="nav-icon">◈</span> "Registrar Gastos e Ingresos
                 </li>
                 <li class="nav-item" data-section="view-arqueo" onclick="showSection('view-arqueo', this)">
                     <span class="nav-icon">◉</span> Arqueo de Caja
+                </li>
+                <li class="nav-item" data-section="view-vouchers" onclick="showSection('view-vouchers', this)">
+                    <span class="nav-icon">◎</span> Pagos Pendientes
+                    <span id="badge-vouchers-count" class="nav-badge" style="display:none;">0</span>
                 </li>
             </ul>
         </nav>
 
         <div class="sidebar-footer">
-            <div class="sidebar-version">v2.0 — Audited Build</div>
+            <div class="sidebar-version">v2.1 — Conciliation Ready</div>
         </div>
     </aside>
 
@@ -203,6 +207,33 @@
                     </div>
                 </div>
 
+                <!-- Bloque dinámico: Comprobante para egreso genérico (toda cuenta ≠ 102.01 / 602.01) -->
+                <div id="egreso-doc-container" class="dynamic-block block-egreso-doc" style="display:none;">
+                    <div class="dynamic-block-title">Comprobante del Gasto</div>
+                    <div class="form-row">
+                        <label>Tipo Documento*</label>
+                        <select id="gi-egreso-tipo-doc">
+                            <option value="BOLETA">Boleta</option>
+                            <option value="FACTURA">Factura</option>
+                            <option value="RECIBO">Recibo</option>
+                            <option value="TICKET">Ticket</option>
+                            <option value="OTRO">Otro</option>
+                        </select>
+                    </div>
+                    <div class="form-row">
+                        <label>N° Documento*</label>
+                        <div class="doc-number-group">
+                            <input type="text" id="gi-egreso-serie" placeholder="Serie (ej: B001)">
+                            <span class="doc-separator">–</span>
+                            <input type="text" id="gi-egreso-correlativo" placeholder="Número">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <label>Concepto*</label>
+                        <input type="text" id="gi-egreso-concepto" placeholder="Descripción del gasto">
+                    </div>
+                </div>
+
                 <div class="form-row">
                     <label>Monto*</label>
                     <input type="number" id="gi-monto" placeholder="0.00" step="0.01" min="0">
@@ -212,6 +243,12 @@
                 <div id="pagado-a-container" class="form-row">
                     <label>Pagado a*</label>
                     <input type="text" id="gi-pagado-a" placeholder="Nombre del beneficiario">
+                </div>
+
+                <!-- Centro de costo (campo libre, opcional) -->
+                <div class="form-row">
+                    <label>Centro de Costo</label>
+                    <input type="text" id="gi-centro-costo" placeholder="Ej: Ventas, Operaciones, Bodega…">
                 </div>
 
                 <div class="form-row">
@@ -267,6 +304,22 @@
                     <tbody id="tbody-arqueo"></tbody>
                 </table>
             </div>
+        </section>
+
+        <!-- ── Vista: Pagos Pendientes ──────────────────────────── -->
+        <section id="view-vouchers" class="view" style="display:none;">
+            <div class="page-header">
+                <div>
+                    <h2>Pagos Pendientes</h2>
+                    <p class="page-subtitle">Vouchers autorizados esperando ejecución del cajero</p>
+                </div>
+            </div>
+            <div id="vouchers-empty" class="empty-state" style="display:none;">
+                <div class="empty-state-icon">✓</div>
+                <div class="empty-state-title">Sin pagos pendientes</div>
+                <div class="empty-state-sub">Todos los vouchers han sido ejecutados.</div>
+            </div>
+            <div id="vouchers-list" class="vouchers-grid"></div>
         </section>
 
     </main>
@@ -336,6 +389,7 @@
                             <th>Pagado a</th>
                             <th>Monto</th>
                             <th>Voucher / Sel.</th>
+                            <th>Acción</th>
                         </tr>
                     </thead>
                     <tbody id="tbody-history"></tbody>
@@ -370,6 +424,28 @@
             <div class="modal-footer">
                 <button class="btn-confirm" onclick="saveAccount()">Guardar</button>
                 <button class="btn-cancel" onclick="closeModal('modal-cuenta')">Cancelar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Anular Movimiento -->
+    <div id="modal-anular" class="modal" style="display:none;" onclick="handleModalOverlayClick(event,'modal-anular')">
+        <div class="modal-content card" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <h3>Anular Movimiento</h3>
+                <button class="modal-close" onclick="closeModal('modal-anular')">✕</button>
+            </div>
+            <div class="anular-info" id="anular-mov-info"></div>
+            <div class="form-group" style="margin-top:16px;">
+                <label>Motivo de Anulación*</label>
+                <textarea id="anular-motivo" rows="3"
+                    placeholder="Describe el motivo de la anulación (obligatorio)…"></textarea>
+            </div>
+            <input type="hidden" id="anular-agency-id">
+            <input type="hidden" id="anular-mov-id">
+            <div class="modal-footer">
+                <button class="btn-danger" onclick="confirmarAnulacion()">Anular Movimiento</button>
+                <button class="btn-cancel" onclick="closeModal('modal-anular')">Cancelar</button>
             </div>
         </div>
     </div>

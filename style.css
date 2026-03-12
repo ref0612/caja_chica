@@ -1108,7 +1108,211 @@ code {
     border: 1px solid rgba(245,158,11,0.3);
 }
 
-/* ── 20. RESPONSIVE (básico) ─────────────────────────────── */
+/* ── 20. BLOQUE EGRESO DOC ──────────────────────────────── */
+.block-egreso-doc {
+    background: #f5f3ff;
+    border-color: #7c3aed;
+}
+
+.block-egreso-doc .dynamic-block-title { color: #5b21b6; }
+
+/* ── 21. ANULACIÓN ───────────────────────────────────────── */
+.badge-anulado {
+    background: #f3f4f6;
+    color: #9ca3af;
+    border: 1px solid #e5e7eb;
+}
+
+.row-anulado td { opacity: 0.5; }
+.row-anulado td:last-child { opacity: 1; }
+
+.text-anulado { color: #9ca3af !important; text-decoration: line-through; }
+
+.btn-anular {
+    background: transparent;
+    color: var(--danger);
+    border: 1px solid rgba(239,68,68,0.3);
+    padding: 4px 10px;
+    font-size: 11.5px;
+    font-weight: 600;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: all var(--transition);
+    font-family: var(--font-ui);
+}
+.btn-anular:hover {
+    background: var(--danger-light);
+    border-color: var(--danger);
+}
+
+.anular-info {
+    background: #f8fafc;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 14px;
+}
+
+.anular-info-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+}
+
+.anular-info-grid > div {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.info-label {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+}
+
+/* ── 22. VOUCHERS PENDIENTES ─────────────────────────────── */
+.nav-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--danger);
+    color: white;
+    font-size: 10px;
+    font-weight: 700;
+    min-width: 18px;
+    height: 18px;
+    border-radius: 9px;
+    padding: 0 5px;
+    margin-left: auto;
+    line-height: 1;
+}
+
+.vouchers-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    gap: 18px;
+}
+
+.voucher-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-sm);
+    overflow: hidden;
+    transition: box-shadow var(--transition);
+}
+
+.voucher-card:hover { box-shadow: var(--shadow-md); }
+
+.voucher-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 18px;
+    border-bottom: 1px solid var(--border);
+    background: #fafbfc;
+    gap: 10px;
+}
+
+.voucher-card-agency {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-left: 8px;
+    font-weight: 500;
+}
+
+.voucher-card-total {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--danger);
+    font-family: var(--font-mono);
+    white-space: nowrap;
+}
+
+.voucher-card-items {
+    padding: 12px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.voucher-item-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12.5px;
+    padding: 6px 0;
+    border-bottom: 1px dashed var(--border);
+}
+
+.voucher-item-row:last-child { border-bottom: none; }
+
+.voucher-item-doc {
+    flex-shrink: 0;
+    font-weight: 600;
+    color: var(--text-muted);
+    font-size: 11px;
+    text-transform: uppercase;
+}
+
+.voucher-item-concepto {
+    flex: 1;
+    color: var(--text-main);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.voucher-item-monto {
+    font-family: var(--font-mono);
+    font-weight: 700;
+    font-size: 13px;
+    color: var(--text-main);
+    white-space: nowrap;
+}
+
+.voucher-card-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 18px;
+    border-top: 1px solid var(--border);
+    background: #fafbfc;
+    gap: 10px;
+}
+
+.voucher-card-actions { display: flex; gap: 8px; }
+
+/* Empty state */
+.empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 80px 20px;
+    text-align: center;
+    color: var(--text-muted);
+}
+
+.empty-state-icon {
+    font-size: 48px;
+    margin-bottom: 16px;
+    color: var(--success);
+    opacity: 0.6;
+}
+
+.empty-state-title {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text-main);
+    margin-bottom: 6px;
+}
+
+.empty-state-sub { font-size: 13px; }
+
+/* ── 23. RESPONSIVE (básico) ─────────────────────────────── */
 @media (max-width: 900px) {
     .stats-grid { grid-template-columns: 1fr 1fr; }
     .main-content { padding: 24px 20px; }

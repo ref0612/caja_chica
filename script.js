@@ -1,7 +1,7 @@
 /**
  * ============================================================
  * KONNECT — Petty Cash ERP | script.js
- * Versión: 2.0 — Audited & Hardened Build
+ * Versión: 2.1 — Conciliation Ready
  * ============================================================
  *
  * BUGS CORREGIDOS EN ESTA VERSIÓN:
@@ -157,6 +157,7 @@ window.showSection = function(id, navItem) {
     if (id === 'view-plan-cuentas')    window.renderCuentas();
     if (id === 'view-gastos-ingresos') window.initGastosForm();
     if (id === 'view-arqueo')          window.renderArqueo();
+    if (id === 'view-vouchers')        window.renderVouchersPendientes();
 };
 
 // ─────────────────────────────────────────────────────────────
@@ -465,9 +466,12 @@ window.handleCategoryChange = function() {
 
     const showIngreso  = val === '102.01';
     const showReemb    = val === '602.01';
+    // Egreso genérico: cualquier cuenta distinta de las dos fijas
+    const showEgresoDoc = !showIngreso && !showReemb && val !== '';
 
-    document.getElementById('dynamic-fields-container').style.display = showIngreso ? 'block' : 'none';
-    document.getElementById('voucher-input-container').style.display  = showReemb  ? 'block' : 'none';
+    document.getElementById('dynamic-fields-container').style.display  = showIngreso   ? 'block' : 'none';
+    document.getElementById('voucher-input-container').style.display   = showReemb    ? 'block' : 'none';
+    document.getElementById('egreso-doc-container').style.display      = showEgresoDoc ? 'block' : 'none';
 
     // Para reembolso: el monto se calcula automáticamente por voucher
     montoInput.readOnly = showReemb;
@@ -600,11 +604,23 @@ window.saveGeneralTransaction = function() {
         Object.assign(mov, { voucherId: folio, concepto: 'Reembolso de caja chica', pagadoA: '' });
 
     } else {
-        // Egreso genérico
-        const pagadoA = document.getElementById('gi-pagado-a').value.trim();
+        // Egreso genérico con comprobante obligatorio
+        const pagadoA   = document.getElementById('gi-pagado-a').value.trim();
+        const tipoDoc   = document.getElementById('gi-egreso-tipo-doc').value;
+        const serie     = document.getElementById('gi-egreso-serie').value.trim();
+        const correl    = document.getElementById('gi-egreso-correlativo').value.trim();
+        const concepto  = document.getElementById('gi-egreso-concepto').value.trim();
+
         if (!pagadoA) return showToast('El campo "Pagado a" es obligatorio.', 'warning');
-        Object.assign(mov, { concepto: document.getElementById('gi-obs').value.trim(), pagadoA });
+        if (!correl)  return showToast('El N° de documento es obligatorio en todo egreso.', 'warning');
+        if (!concepto) return showToast('El concepto es obligatorio.', 'warning');
+
+        Object.assign(mov, { tipoDoc, serie, correlativo: correl, concepto, pagadoA });
     }
+
+    // Centro de costo (opcional, aplica a todos los tipos)
+    const centroCosto = document.getElementById('gi-centro-costo')?.value.trim();
+    if (centroCosto) mov.centroCosto = centroCosto;
 
     agencia.movements.push(mov);
     saveToLocalStorage();
@@ -619,12 +635,14 @@ window.saveGeneralTransaction = function() {
 /** Limpia el formulario de gastos tras guardar */
 function resetGastosForm() {
     ['gi-concepto', 'gi-serie', 'gi-correlativo', 'gi-obs',
-     'gi-pagado-a', 'gi-pagado-a-ingreso', 'gi-voucher-ref', 'gi-monto']
+     'gi-pagado-a', 'gi-pagado-a-ingreso', 'gi-voucher-ref', 'gi-monto',
+     'gi-egreso-serie', 'gi-egreso-correlativo', 'gi-egreso-concepto', 'gi-centro-costo']
         .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
 
     document.getElementById('gi-tipo-trans').value = 'EGRESO';
     document.getElementById('ref-propio').checked  = true;
-    document.getElementById('user-selector-container').style.display = 'none';
+    document.getElementById('user-selector-container').style.display  = 'none';
+    document.getElementById('egreso-doc-container').style.display     = 'none';
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -660,37 +678,55 @@ window.viewHistory = function(id) {
                 ? `${m.serie}–${m.correlativo}`
                 : (m.correlativo || '—');
 
+            const esAnulado = m.estado === 'ANULADO';
+            const rowClass  = esAnulado ? 'row-anulado' : (esIngreso ? '' : 'row-reembolso');
+
             return `
-            <tr class="row-hover ${esIngreso ? '' : 'row-reembolso'}">
+            <tr class="row-hover ${rowClass}">
                 <td><small>${m.date || '—'}</small></td>
                 <td>
-                    ${esIngreso
-                        ? `<span class="badge-type badge-ingreso">${m.tipoDoc || 'INGRESO'}</span>`
-                        : `<span class="badge-type badge-egreso">REEMBOLSO</span>`
+                    ${esAnulado
+                        ? `<span class="badge-type badge-anulado">ANULADO</span>`
+                        : esIngreso
+                            ? `<span class="badge-type badge-ingreso">${m.tipoDoc || 'INGRESO'}</span>`
+                            : `<span class="badge-type badge-egreso">REEMBOLSO</span>`
                     }
                 </td>
                 <td><code>${docNum}</code></td>
-                <td>${escHtml(m.concepto || m.obs || '—')}</td>
-                <td>${escHtml(m.pagadoA || '—')}</td>
-                <td class="amount-cell">$${parseFloat(m.amount || 0).toLocaleString('es-CL')}</td>
                 <td>
-                    ${m.voucherId && m.category === '102.01' && !m.liquidado
-                        // Tiene orden generada pero aún pendiente de pago por cajero
-                        ? `<span class="badge-voucher" style="background:var(--warning);color:#fff;">${escHtml(m.voucherId)}</span>
-                           <span class="badge-pending">Pendiente</span>`
-                        : m.voucherId && m.category === '102.01' && m.liquidado
-                        // Pagado y ciclo cerrado
-                        ? `<span class="badge-voucher">${escHtml(m.voucherId)}</span>`
-                        : m.voucherId && m.category === '602.01'
-                        // Movimiento de egreso del cajero (cierre de ciclo)
-                        ? `<span class="badge-voucher">${escHtml(m.voucherId)}</span>`
-                        : esIngreso
-                            ? `<input type="checkbox"
-                                    class="chk-reem"
-                                    data-idx="${a.movements.indexOf(m)}"
-                                    data-amount="${m.amount}"
-                                    onchange="updateTotalSelected()">`
-                            : '—'
+                    ${escHtml(m.concepto || m.obs || '—')}
+                    ${esAnulado ? `<br><small class="text-anulado">Motivo: ${escHtml(m.motivoAnulacion || '—')}</small>` : ''}
+                </td>
+                <td>${escHtml(m.pagadoA || '—')}</td>
+                <td class="amount-cell ${esAnulado ? 'text-anulado' : ''}">
+                    ${esAnulado ? '<s>' : ''}$${parseFloat(m.amount || 0).toLocaleString('es-CL')}${esAnulado ? '</s>' : ''}
+                </td>
+                <td>
+                    ${esAnulado
+                        ? `<span class="badge-type badge-anulado" style="font-size:10px;">—</span>`
+                        : m.voucherId && m.category === '102.01' && !m.liquidado
+                            ? `<span class="badge-voucher" style="background:var(--warning);color:#fff;">${escHtml(m.voucherId)}</span>
+                               <span class="badge-pending">Pendiente</span>`
+                            : m.voucherId && m.category === '102.01' && m.liquidado
+                                ? `<span class="badge-voucher">${escHtml(m.voucherId)}</span>`
+                                : m.voucherId && m.category === '602.01'
+                                    ? `<span class="badge-voucher">${escHtml(m.voucherId)}</span>`
+                                    : esIngreso
+                                        ? `<input type="checkbox"
+                                                class="chk-reem"
+                                                data-idx="${a.movements.indexOf(m)}"
+                                                data-amount="${m.amount}"
+                                                onchange="updateTotalSelected()">`
+                                        : '—'
+                    }
+                </td>
+                <td>
+                    ${esAnulado
+                        ? '<span class="text-muted" style="font-size:11px;">Anulado</span>'
+                        : `<button class="btn-sm btn-anular"
+                                onclick="abrirModalAnular(${id}, ${m.id})">
+                            Anular
+                           </button>`
                     }
                 </td>
             </tr>`;
@@ -911,6 +947,245 @@ window.renderArqueo = function() {
 };
 
 // ─────────────────────────────────────────────────────────────
+// 9b. ANULACIÓN DE MOVIMIENTOS
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Abre el modal de anulación mostrando el resumen del movimiento a anular.
+ * Solo se puede anular si el movimiento NO está ya anulado y
+ * si no tiene voucherId con estado liquidado (ya cobrado).
+ */
+window.abrirModalAnular = function(agencyId, movId) {
+    const a   = db.agencies.find(x => x.id == agencyId);
+    const mov = a?.movements.find(m => m.id == movId);
+    if (!mov) return showToast('Movimiento no encontrado.', 'error');
+
+    if (mov.estado === 'ANULADO') {
+        return showToast('Este movimiento ya está anulado.', 'warning');
+    }
+    if (mov.liquidado) {
+        return showToast('No se puede anular un movimiento ya liquidado.', 'error');
+    }
+
+    // Llenar el resumen informativo del modal
+    const docNum = (mov.serie && mov.correlativo)
+        ? `${mov.serie}–${mov.correlativo}`
+        : (mov.correlativo || mov.voucherId || '—');
+
+    document.getElementById('anular-mov-info').innerHTML = `
+        <div class="anular-info-grid">
+            <div><span class="info-label">Fecha</span><span>${mov.date || '—'}</span></div>
+            <div><span class="info-label">Categoría</span><span>${mov.category}</span></div>
+            <div><span class="info-label">Documento</span><span>${escHtml(docNum)}</span></div>
+            <div><span class="info-label">Concepto</span><span>${escHtml(mov.concepto || '—')}</span></div>
+            <div><span class="info-label">Pagado a</span><span>${escHtml(mov.pagadoA || '—')}</span></div>
+            <div><span class="info-label">Monto</span><span class="amount-danger">$${parseFloat(mov.amount).toLocaleString('es-CL')}</span></div>
+        </div>
+    `;
+
+    document.getElementById('anular-agency-id').value = agencyId;
+    document.getElementById('anular-mov-id').value    = movId;
+    document.getElementById('anular-motivo').value    = '';
+    document.getElementById('modal-anular').style.display = 'flex';
+};
+
+/**
+ * Confirma la anulación: marca el movimiento con estado ANULADO y motivo.
+ * NO se elimina el registro — queda con trazabilidad completa.
+ * Si el movimiento tenía voucherId, también se limpia para liberar la orden.
+ */
+window.confirmarAnulacion = function() {
+    const agencyId = parseInt(document.getElementById('anular-agency-id').value);
+    const movId    = parseInt(document.getElementById('anular-mov-id').value);
+    const motivo   = document.getElementById('anular-motivo').value.trim();
+
+    if (!motivo) return showToast('El motivo de anulación es obligatorio.', 'warning');
+
+    const a   = db.agencies.find(x => x.id == agencyId);
+    const mov = a?.movements.find(m => m.id == movId);
+    if (!mov) return showToast('Movimiento no encontrado.', 'error');
+
+    mov.estado           = 'ANULADO';
+    mov.motivoAnulacion  = motivo;
+    mov.fechaAnulacion   = new Date().toISOString().split('T')[0];
+    // Si tenía voucher pendiente, se libera para que no bloquee futuros reembolsos
+    if (mov.voucherId && !mov.liquidado) mov.voucherId = null;
+
+    saveToLocalStorage();
+    closeModal('modal-anular');
+    showToast('Movimiento anulado correctamente.', 'success');
+
+    // Refrescar el historial si está abierto
+    window.viewHistory(agencyId);
+    // Actualizar contador de vouchers pendientes
+    window.updateVoucherBadge();
+};
+
+// ─────────────────────────────────────────────────────────────
+// 9c. VISTA PAGOS PENDIENTES (Vouchers autorizados)
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Recopila todos los vouchers pendientes de pago en todas las cajas
+ * y los muestra como tarjetas accionables para el cajero.
+ *
+ * Un voucher está PENDIENTE si:
+ *   - Existen movimientos 102.01 con ese voucherId y liquidado === false
+ *   - NO existe un movimiento 602.01 con ese voucherId (aún no ejecutado)
+ *   - El movimiento NO está ANULADO
+ */
+window.renderVouchersPendientes = function() {
+    const container  = document.getElementById('vouchers-list');
+    const emptyState = document.getElementById('vouchers-empty');
+    if (!container)  return;
+
+    // Recopilar todos los vouchers pendientes agrupados por voucherId
+    const voucherMap = {}; // { voucherId: { agencyId, agencyName, total, items[], fecha } }
+
+    db.agencies.forEach(a => {
+        // IDs de vouchers ya liquidados en esta agencia (existe 602.01 con ese id)
+        const liquidados = new Set(
+            a.movements
+                .filter(m => m.category === '602.01' && m.voucherId)
+                .map(m => m.voucherId)
+        );
+
+        a.movements
+            .filter(m =>
+                m.category === '102.01' &&
+                m.voucherId &&
+                !m.liquidado &&
+                m.estado !== 'ANULADO' &&
+                !liquidados.has(m.voucherId)
+            )
+            .forEach(m => {
+                if (!voucherMap[m.voucherId]) {
+                    voucherMap[m.voucherId] = {
+                        voucherId:  m.voucherId,
+                        agencyId:   a.id,
+                        agencyName: a.name,
+                        total:      0,
+                        items:      [],
+                        fecha:      m.date
+                    };
+                }
+                voucherMap[m.voucherId].total += parseFloat(m.amount || 0);
+                voucherMap[m.voucherId].items.push(m);
+            });
+    });
+
+    const vouchers = Object.values(voucherMap);
+
+    // Actualizar badge del nav
+    window.updateVoucherBadge(vouchers.length);
+
+    if (vouchers.length === 0) {
+        container.innerHTML  = '';
+        emptyState.style.display = 'flex';
+        return;
+    }
+
+    emptyState.style.display = 'none';
+    container.innerHTML = vouchers.map(v => `
+        <div class="voucher-card">
+            <div class="voucher-card-header">
+                <div>
+                    <span class="badge-voucher voucher-lg">${escHtml(v.voucherId)}</span>
+                    <span class="voucher-card-agency">${escHtml(v.agencyName)}</span>
+                </div>
+                <div class="voucher-card-total">$${v.total.toLocaleString('es-CL')}</div>
+            </div>
+            <div class="voucher-card-items">
+                ${v.items.map(m => `
+                    <div class="voucher-item-row">
+                        <span class="voucher-item-doc">
+                            ${m.tipoDoc ? escHtml(m.tipoDoc) : 'DOC'}
+                            ${m.correlativo ? `<code>${escHtml(m.correlativo)}</code>` : ''}
+                        </span>
+                        <span class="voucher-item-concepto">${escHtml(m.concepto || '—')}</span>
+                        <span class="voucher-item-monto">$${parseFloat(m.amount).toLocaleString('es-CL')}</span>
+                    </div>
+                `).join('')}
+            </div>
+            <div class="voucher-card-footer">
+                <small class="text-muted">Generado: ${v.fecha}</small>
+                <div class="voucher-card-actions">
+                    <button class="btn-sm btn-outline"
+                        onclick="mostrarInstruccionPago('${escHtml(v.voucherId)}', ${v.total})">
+                        Ver instrucción
+                    </button>
+                    <button class="btn-sm btn-confirm"
+                        onclick="showSection('view-gastos-ingresos', null); prefillVoucher('${escHtml(v.voucherId)}')">
+                        Registrar Pago
+                    </button>
+                </div>
+            </div>
+        </div>
+    `).join('');
+};
+
+/**
+ * Pre-rellena el formulario de Gastos e Ingresos con el voucher seleccionado
+ * para que el cajero solo deba confirmar el monto.
+ */
+window.prefillVoucher = function(voucherId) {
+    // Asegurar que estamos en tipo EGRESO y categoría 602.01
+    const tipoTrans = document.getElementById('gi-tipo-trans');
+    if (tipoTrans) { tipoTrans.value = 'EGRESO'; window.renderCategoriasEnGastos(); }
+
+    setTimeout(() => {
+        const catSelect = document.getElementById('gi-categoria');
+        if (catSelect) {
+            catSelect.value = '602.01';
+            window.handleCategoryChange();
+        }
+        const voucherInput = document.getElementById('gi-voucher-ref');
+        if (voucherInput) {
+            voucherInput.value = voucherId;
+            window.validateVoucherRealTime();
+        }
+    }, 50);
+};
+
+/**
+ * Muestra un toast con la instrucción de pago para un voucher.
+ */
+window.mostrarInstruccionPago = function(voucherId, total) {
+    showToast(
+        `Voucher ${voucherId}: ir a Gastos e Ingresos → Reembolso Caja Chica → ingresar este N° voucher. Monto: $${total.toLocaleString('es-CL')}`,
+        'info',
+        6000
+    );
+};
+
+/**
+ * Actualiza el badge numérico en el nav de Pagos Pendientes.
+ */
+window.updateVoucherBadge = function(count) {
+    // Si no se pasa count, recalcular
+    if (count === undefined) {
+        let c = 0;
+        db.agencies.forEach(a => {
+            const liquidados = new Set(
+                a.movements.filter(m => m.category === '602.01' && m.voucherId).map(m => m.voucherId)
+            );
+            const folios = new Set(
+                a.movements
+                    .filter(m => m.category === '102.01' && m.voucherId && !m.liquidado && m.estado !== 'ANULADO' && !liquidados.has(m.voucherId))
+                    .map(m => m.voucherId)
+            );
+            c += folios.size;
+        });
+        count = c;
+    }
+
+    const badge = document.getElementById('badge-vouchers-count');
+    if (!badge) return;
+    badge.textContent    = count;
+    badge.style.display  = count > 0 ? 'inline-flex' : 'none';
+};
+
+// ─────────────────────────────────────────────────────────────
 // 9b. TOGGLE ESTATUS CAJA CHICA
 // ─────────────────────────────────────────────────────────────
 
@@ -1028,4 +1303,5 @@ function escHtml(str) {
 document.addEventListener('DOMContentLoaded', () => {
     window.updateUserSelector();
     window.renderSucursales();
+    window.updateVoucherBadge();
 });
