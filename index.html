@@ -2,37 +2,74 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <title>Konnect - Petty Cash Management</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Konnect — Petty Cash ERP</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div class="sidebar">
-        <div class="logo">Kupos.cl</div>
-        <nav>
+
+    <!-- ============================================================
+         SIDEBAR
+    ============================================================ -->
+    <aside class="sidebar">
+        <div class="sidebar-header">
+            <div class="logo">
+                <span class="logo-icon">K</span>
+                <span class="logo-text">onnect</span>
+            </div>
+            <div class="user-context-box">
+                <small>Contexto Activo</small>
+                <select id="header-user-selector" onchange="switchUserContext()"></select>
+            </div>
+        </div>
+
+        <nav class="sidebar-nav">
             <ul>
-                <li onclick="showSection('view-admin-global')">📦 Gestión Cajas Chicas</li>
-                <li onclick="showSection('view-plan-cuentas')">📑 Plan Cuentas</li>
-                <li onclick="showSection('view-gastos-ingresos')">💰 Gastos e Ingresos</li>
+                <li class="nav-item active" data-section="view-admin-global" onclick="showSection('view-admin-global', this)">
+                    <span class="nav-icon">⬡</span> Gestión Cajas
+                </li>
+                <li class="nav-item" data-section="view-plan-cuentas" onclick="showSection('view-plan-cuentas', this)">
+                    <span class="nav-icon">⊞</span> Plan de Cuentas
+                </li>
+                <li class="nav-item" data-section="view-gastos-ingresos" onclick="showSection('view-gastos-ingresos', this)">
+                    <span class="nav-icon">◈</span> Gastos e Ingresos
+                </li>
+                <li class="nav-item" data-section="view-arqueo" onclick="showSection('view-arqueo', this)">
+                    <span class="nav-icon">◉</span> Arqueo de Caja
+                </li>
             </ul>
         </nav>
-    </div>
 
-    <main class="content">
+        <div class="sidebar-footer">
+            <div class="sidebar-version">v2.0 — Audited Build</div>
+        </div>
+    </aside>
+
+    <!-- ============================================================
+         MAIN CONTENT
+    ============================================================ -->
+    <main class="main-content">
+
+        <!-- ── Vista: Mantenedor de Cajas ────────────────────────── -->
         <section id="view-admin-global" class="view">
-            <div class="header-actions">
-                <h2>Mantenedor de Cajas Chicas</h2>
-                <button class="btn-primary" onclick="openCreateModal()">+ Crear</button>
+            <div class="page-header">
+                <div>
+                    <h2>Mantenedor de Cajas Chicas</h2>
+                    <p class="page-subtitle">Gestión y configuración de cajas por sucursal</p>
+                </div>
+                <button class="btn-primary" onclick="openCreateModal()">+ Nueva Caja</button>
             </div>
-            <div class="card">
-                <p style="font-size: 11px; color: #888;">* Doble clic en la fila para ver historial.</p>
-                <table class="table">
+            <div class="card mt-20">
+                <table class="table" id="table-sucursales">
                     <thead>
                         <tr>
                             <th>Sucursal</th>
                             <th>Fondo Fijo</th>
-                            <th>Fondo Usado</th>
-                            <th>Mín (%)</th>
-                            <th>Máx (%)</th>
+                            <th>Estado de Uso</th>
+                            <th>Mín %</th>
+                            <th>Máx %</th>
                             <th>Acciones</th>
                         </tr>
                     </thead>
@@ -41,19 +78,27 @@
             </div>
         </section>
 
+        <!-- ── Vista: Plan de Cuentas ─────────────────────────────── -->
         <section id="view-plan-cuentas" class="view" style="display:none;">
-            <div class="header-actions">
-                <h2>Plan de Cuentas Contables</h2>
+            <div class="page-header">
+                <div>
+                    <h2>Plan de Cuentas Contables</h2>
+                    <p class="page-subtitle">Catálogo de cuentas para clasificación de movimientos</p>
+                </div>
                 <button class="btn-success" onclick="openAccountModal()">+ Nueva Cuenta</button>
             </div>
-            <div class="card">
-                <table class="table">
+            <div class="card mt-20">
+                <div class="table-toolbar">
+                    <input type="text" id="search-cuentas" placeholder="Buscar cuenta…" class="search-input" oninput="filterCuentas()">
+                    <span id="cuentas-count" class="count-badge"></span>
+                </div>
+                <table class="table" id="table-cuentas">
                     <thead>
                         <tr>
-                            <th>Código</th>
+                            <th style="width:120px">Código</th>
                             <th>Descripción</th>
-                            <th>Tipo</th>
-                            <th>Acciones</th>
+                            <th style="width:100px">Tipo</th>
+                            <th style="width:100px">Acciones</th>
                         </tr>
                     </thead>
                     <tbody id="tbody-cuentas"></tbody>
@@ -61,59 +106,54 @@
             </div>
         </section>
 
+        <!-- ── Vista: Gastos e Ingresos ───────────────────────────── -->
         <section id="view-gastos-ingresos" class="view" style="display:none;">
-            <div class="header-actions">
-                <h2>Ingresar Gastos/Ingresos</h2>
-                <div class="tabs-mockup">
-                    <span class="tab active">Crear Nueva Transacción</span>
-                    <span class="tab">Transacciones Pendientes</span>
+            <div class="page-header">
+                <div>
+                    <h2>Registrar Transacción</h2>
+                    <p class="page-subtitle">Ingreso y egresos de caja chica</p>
                 </div>
             </div>
+            <div class="card form-container mt-20">
 
-            <div class="card form-container">
                 <div class="form-row">
-                    <label>Fecha</label>
-                    <input type="date" id="gi-fecha" value="2026-03-11">
+                    <label>Fecha*</label>
+                    <input type="date" id="gi-fecha">
                 </div>
 
                 <div class="form-row">
-                    <label>Transacción*</label>
+                    <label>Tipo de Transacción*</label>
                     <select id="gi-tipo-trans" onchange="renderCategoriasEnGastos()">
-                        <option value="EGRESO">Gastos</option>
-                        <option value="INGRESO">Ingresos</option>
+                        <option value="EGRESO">Gasto / Egreso</option>
+                        <option value="INGRESO">Ingreso a Caja</option>
                     </select>
                 </div>
 
                 <div class="form-row">
                     <label>Reflejar en</label>
                     <div class="radio-group">
-                        <input type="radio" name="reflejar" id="ref-propio" checked onclick="toggleUserSelector()"> Propio
-                        <input type="radio" name="reflejar" id="ref-otro" onclick="toggleUserSelector()"> Otro Usuario
+                        <label class="radio-label">
+                            <input type="radio" name="reflejar" id="ref-propio" checked onchange="toggleUserSelector()"> Caja Propia
+                        </label>
+                        <label class="radio-label">
+                            <input type="radio" name="reflejar" id="ref-otro" onchange="toggleUserSelector()"> Otra Caja
+                        </label>
                     </div>
                 </div>
 
                 <div id="user-selector-container" class="form-row" style="display:none;">
-                    <label>Seleccionar Usuario*</label>
-                    <select id="gi-usuario-otro">
-                        <option value="">Seleccione usuario...</option>
-                        <option value="1">Admin_Norte</option>
-                        <option value="2">Cajero_Sur</option>
-                    </select>
+                    <label>Caja Destino*</label>
+                    <select id="gi-usuario-otro"></select>
                 </div>
 
                 <div class="form-row">
-                    <label>Transacción para*</label>
-                    <select id="gi-categoria" onchange="handleCategoryChange()">
-                    </select>
+                    <label>Categoría Contable*</label>
+                    <select id="gi-categoria" onchange="handleCategoryChange()"></select>
                 </div>
 
-                <div id="extra-fields-ingreso" style="display:none; background: #f0f7ff; padding: 20px; border-radius: 4px; margin-bottom: 20px; border-left: 4px solid #007bff; margin-left: 100px; max-width: 600px;">
-                    
-                    <div class="form-row">
-                        <label>Concepto*</label>
-                        <input type="text" id="gi-concepto" placeholder="Ej: Devolución de excedente">
-                    </div>
-
+                <!-- Bloque dinámico: Ingreso Caja Chica (102.01) -->
+                <div id="dynamic-fields-container" class="dynamic-block block-ingreso" style="display:none;">
+                    <div class="dynamic-block-title">Datos del Comprobante</div>
                     <div class="form-row">
                         <label>Tipo Documento*</label>
                         <select id="gi-tipo-doc">
@@ -123,105 +163,211 @@
                             <option value="OTRO">Otro</option>
                         </select>
                     </div>
-
+                    <div class="form-row">
+                        <label>N° Documento*</label>
+                        <div class="doc-number-group">
+                            <input type="text" id="gi-serie" placeholder="Serie (ej: A001)">
+                            <span class="doc-separator">–</span>
+                            <input type="text" id="gi-correlativo" placeholder="Número correlativo">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <label>Concepto*</label>
+                        <input type="text" id="gi-concepto" placeholder="Descripción del gasto">
+                    </div>
+                    <div class="form-row">
+                        <label>Pagado a*</label>
+                        <input type="text" id="gi-pagado-a-ingreso" placeholder="Nombre del proveedor o beneficiario">
+                    </div>
                 </div>
 
-                <div id="voucher-input-container" style="display:none; background: #fff5f2; padding: 10px; border-radius: 5px;">
-                    <label>N° Voucher Reembolso*</label>
-                    <input type="text" id="gi-voucher-ref" onkeyup="validateVoucherRealTime()">
-                </div>
-
-                <div class="form-row">
-                    <label>Tipo de pago*</label>
-                    <select id="gi-pago">
-                        <option>Efectivo</option>
-                        <option>Tarjeta</option>
-                        <option>Yape/Plin</option>
-                        <option>Transferencia</option>
-                    </select>
-                </div>
-
-                <div class="form-row">
-                    <label>Vendedor</label>
-                    <select id="gi-vendedor"><option value="">Select...</option></select>
+                <!-- Bloque dinámico: Reembolso (602.01) -->
+                <div id="voucher-input-container" class="dynamic-block block-reembolso" style="display:none;">
+                    <div class="dynamic-block-title">Datos del Voucher de Reembolso</div>
+                    <div class="form-row">
+                        <label>N° Voucher*</label>
+                        <div class="voucher-input-group">
+                            <input type="text" id="gi-voucher-ref" placeholder="Ej: VOU-1234" oninput="validateVoucherRealTime()">
+                            <span id="voucher-status" class="voucher-status"></span>
+                        </div>
+                    </div>
                 </div>
 
                 <div class="form-row">
                     <label>Monto*</label>
-                    <input type="number" id="gi-monto" placeholder="0.00">
+                    <input type="number" id="gi-monto" placeholder="0.00" step="0.01" min="0">
                 </div>
 
-                <div class="form-row">
+                <!-- Pagado a general (para egresos no-ingreso) -->
+                <div id="pagado-a-container" class="form-row">
                     <label>Pagado a*</label>
-                    <input type="text" id="gi-pagado-a">
+                    <input type="text" id="gi-pagado-a" placeholder="Nombre del beneficiario">
                 </div>
 
                 <div class="form-row">
-                    <label>Observaciones*</label>
-                    <textarea id="gi-obs" rows="3"></textarea>
+                    <label>Observaciones</label>
+                    <textarea id="gi-obs" rows="3" placeholder="Notas adicionales (opcional)"></textarea>
                 </div>
 
-                <div class="form-buttons" style="margin-left: 220px;">
-                    <button class="btn-confirm" onclick="saveGeneralTransaction()">Crear</button>
-                    <button class="btn-cancel" onclick="showSection('view-admin-global')">Cancelar</button>
+                <div class="form-buttons">
+                    <button class="btn-confirm" onclick="saveGeneralTransaction()">✔ Registrar</button>
+                    <button class="btn-cancel" onclick="showSection('view-admin-global', null)">Cancelar</button>
                 </div>
             </div>
         </section>
 
-        <div id="modal-crud" class="modal" style="display:none;">
-            <div class="modal-content card">
+        <!-- ── Vista: Arqueo de Caja ──────────────────────────────── -->
+        <section id="view-arqueo" class="view" style="display:none;">
+            <div class="page-header">
+                <div>
+                    <h2>Arqueo de Caja</h2>
+                    <p class="page-subtitle">Resumen del turno por cajero activo</p>
+                </div>
+                <div class="user-badge" id="arqueo-user-label">—</div>
+            </div>
+
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <label>Ventas Totales (Efectivo)</label>
+                    <div class="price" id="arq-ventas">$0</div>
+                </div>
+                <div class="stat-card stat-danger">
+                    <label>Egresos / Reembolsos</label>
+                    <div class="price" id="arq-egresos">-$0</div>
+                </div>
+                <div class="stat-card stat-success">
+                    <label>Saldo Final en Caja</label>
+                    <div class="price" id="arq-saldo">$0</div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3 class="section-title">Detalle de Movimientos del Turno</h3>
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>Fecha</th>
+                            <th>Tipo</th>
+                            <th>Referencia / Concepto</th>
+                            <th>Pagado a</th>
+                            <th>Monto</th>
+                            <th>Impacto</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tbody-arqueo"></tbody>
+                </table>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- ============================================================
+         MODALES
+    ============================================================ -->
+
+    <!-- Modal: CRUD Caja -->
+    <div id="modal-crud" class="modal" style="display:none;" onclick="handleModalOverlayClick(event,'modal-crud')">
+        <div class="modal-content card" onclick="event.stopPropagation()">
+            <div class="modal-header">
                 <h3 id="modal-title">Configurar Sucursal</h3>
-                <hr>
-                <div class="form-group"><label>Nombre:</label><input type="text" id="input-name"></div>
-                <div class="form-group"><label>Fondo ($):</label><input type="number" id="input-fund"></div>
-                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:15px;">
-                    <div class="form-group"><label>Mín (%)</label><input type="number" id="input-min" value="40"></div>
-                    <div class="form-group"><label>Máx (%)</label><input type="number" id="input-max" value="70"></div>
-                </div>
-                <div class="modal-buttons" style="margin-top:20px;">
-                    <input type="hidden" id="edit-id">
-                    <button class="btn-confirm" onclick="saveAgency()">Confirmar</button>
-                    <button class="btn-cancel" onclick="closeModal('modal-crud')">Cancelar</button>
-                </div>
+                <button class="modal-close" onclick="closeModal('modal-crud')">✕</button>
+            </div>
+            <div class="form-group">
+                <label>Nombre de Sucursal</label>
+                <input type="text" id="input-name" placeholder="Ej: Agencia Norte">
+            </div>
+            <div class="form-group">
+                <label>Fondo Fijo ($)</label>
+                <input type="number" id="input-fund" placeholder="0">
+            </div>
+            <div class="form-group">
+                <label>Alerta Mínima (%)</label>
+                <input type="number" id="input-min" placeholder="40">
+            </div>
+            <div class="form-group">
+                <label>Alerta Máxima (%)</label>
+                <input type="number" id="input-max" placeholder="70">
+            </div>
+            <input type="hidden" id="edit-id">
+            <div class="modal-footer">
+                <button class="btn-confirm" onclick="saveAgency()">Guardar</button>
+                <button class="btn-cancel" onclick="closeModal('modal-crud')">Cerrar</button>
             </div>
         </div>
+    </div>
 
-        <div id="modal-history" class="modal" style="display:none;">
-            <div class="modal-content card" style="width: 750px;">
-                <h3>Historial de Sucursal: <span id="history-agency-name"></span></h3>
-                <hr>
-                <div style="max-height: 400px; overflow-y: auto; margin-bottom: 20px;">
-                    <table class="table">
-                        <thead>
-                            <tr>
-                                <th>Fecha</th>
-                                <th>Concepto/Descripción</th>
-                                <th>Monto</th>
-                                <th>Voucher / Sel.</th>
-                            </tr>
-                        </thead>
-                        <tbody id="tbody-history"></tbody>
-                    </table>
-                </div>
-                <div class="modal-buttons-history" style="display: flex; gap: 10px; justify-content: flex-end;">
-                </div>
+    <!-- Modal: Historial -->
+    <div id="modal-history" class="modal" style="display:none;" onclick="handleModalOverlayClick(event,'modal-history')">
+        <div class="modal-content card modal-wide" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <h3>Historial: <span id="history-agency-name" class="highlight-text"></span></h3>
+                <button class="modal-close" onclick="closeModal('modal-history')">✕</button>
             </div>
+            <div class="table-scroll-container">
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>Fecha</th>
+                            <th>Tipo Doc.</th>
+                            <th>N° Documento</th>
+                            <th>Concepto</th>
+                            <th>Pagado a</th>
+                            <th>Monto</th>
+                            <th>Voucher / Sel.</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tbody-history"></tbody>
+                </table>
+            </div>
+            <div class="modal-buttons-history"></div>
         </div>
+    </div>
 
-        <div id="modal-cuenta" class="modal" style="display:none;">
-            <div class="modal-content card">
+    <!-- Modal: Nueva Cuenta Contable -->
+    <div id="modal-cuenta" class="modal" style="display:none;" onclick="handleModalOverlayClick(event,'modal-cuenta')">
+        <div class="modal-content card" onclick="event.stopPropagation()">
+            <div class="modal-header">
                 <h3>Nueva Cuenta Contable</h3>
-                <div class="form-group"><label>Código:</label><input type="text" id="acc-code"></div>
-                <div class="form-group"><label>Nombre:</label><input type="text" id="acc-name"></div>
-                <div class="form-group">
-                    <label>Tipo:</label>
-                    <select id="acc-type"><option value="EGRESO">Egreso</option><option value="INGRESO">Ingreso</option></select>
-                </div>
+                <button class="modal-close" onclick="closeModal('modal-cuenta')">✕</button>
+            </div>
+            <div class="form-group">
+                <label>Código Contable</label>
+                <input type="text" id="acc-code" placeholder="Ej: 601.03">
+            </div>
+            <div class="form-group">
+                <label>Nombre / Descripción</label>
+                <input type="text" id="acc-name" placeholder="Ej: Gastos de Viaje">
+            </div>
+            <div class="form-group">
+                <label>Tipo</label>
+                <select id="acc-type">
+                    <option value="EGRESO">Egreso</option>
+                    <option value="INGRESO">Ingreso</option>
+                </select>
+            </div>
+            <div class="modal-footer">
                 <button class="btn-confirm" onclick="saveAccount()">Guardar</button>
                 <button class="btn-cancel" onclick="closeModal('modal-cuenta')">Cancelar</button>
             </div>
         </div>
-    </main>
+    </div>
+
+    <!-- Toast de notificaciones (reemplaza alert/confirm nativos) -->
+    <div id="toast-container"></div>
+
+    <!-- Diálogo de confirmación personalizado -->
+    <div id="confirm-dialog" class="modal" style="display:none;">
+        <div class="modal-content card confirm-card" onclick="event.stopPropagation()">
+            <div class="confirm-icon">⚠</div>
+            <h3 id="confirm-title">¿Confirmar acción?</h3>
+            <p id="confirm-message"></p>
+            <div class="modal-footer">
+                <button class="btn-danger" id="confirm-ok-btn">Confirmar</button>
+                <button class="btn-cancel" onclick="closeModal('confirm-dialog')">Cancelar</button>
+            </div>
+        </div>
+    </div>
+
     <script src="script.js"></script>
 </body>
 </html>
