@@ -47,7 +47,7 @@
         </nav>
 
         <div class="sidebar-footer">
-            <div class="sidebar-version">v2.1 — Conciliation Ready</div>
+            <div class="sidebar-version">v3.0 — IGV & SUNAT Ready</div>
         </div>
     </aside>
 
@@ -103,6 +103,7 @@
                             <th style="width:120px">Código</th>
                             <th>Descripción</th>
                             <th style="width:100px">Tipo</th>
+                            <th style="width:80px">IGV %</th>
                             <th style="width:100px">Acciones</th>
                         </tr>
                     </thead>
@@ -169,8 +170,21 @@
                 <div id="dynamic-fields-container" class="dynamic-block block-ingreso" style="display:none;">
                     <div class="dynamic-block-title">Datos del Comprobante</div>
                     <div class="form-row">
+                        <label>RUC Emisor*</label>
+                        <div class="voucher-input-group">
+                            <input type="text" id="gi-ruc-emisor" placeholder="11 dígitos"
+                                maxlength="11" oninput="this.value=this.value.replace(/\D/g,'')"
+                                onblur="lookupRUC(this)">
+                            <span id="ruc-status" class="ruc-status"></span>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <label>Razón Social*</label>
+                        <input type="text" id="gi-razon-social" placeholder="Auto-completado desde SUNAT">
+                    </div>
+                    <div class="form-row">
                         <label>Tipo Documento*</label>
-                        <select id="gi-tipo-doc">
+                        <select id="gi-tipo-doc" onchange="onTipoDocChange(this)">
                             <option value="BOLETA">Boleta</option>
                             <option value="FACTURA">Factura</option>
                             <option value="RECIBO">Recibo</option>
@@ -178,7 +192,7 @@
                         </select>
                     </div>
                     <div class="form-row">
-                        <label>N° Documento*</label>
+                        <label>N° Documento</label>
                         <div class="doc-number-group">
                             <input type="text" id="gi-serie" placeholder="Serie (ej: A001)">
                             <span class="doc-separator">–</span>
@@ -212,7 +226,7 @@
                     <div class="dynamic-block-title">Comprobante del Gasto</div>
                     <div class="form-row">
                         <label>Tipo Documento*</label>
-                        <select id="gi-egreso-tipo-doc">
+                        <select id="gi-egreso-tipo-doc" onchange="onTipoDocChange(this)">
                             <option value="BOLETA">Boleta</option>
                             <option value="FACTURA">Factura</option>
                             <option value="RECIBO">Recibo</option>
@@ -235,8 +249,36 @@
                 </div>
 
                 <div class="form-row">
-                    <label>Monto*</label>
-                    <input type="number" id="gi-monto" placeholder="0.00" step="0.01" min="0">
+                    <label>Monto Total*</label>
+                    <input type="number" id="gi-monto" placeholder="0.00" step="0.01" min="0"
+                        oninput="recalcularIGV()">
+                </div>
+
+                <!-- Bloque IGV — solo visible cuando tipoDoc = FACTURA -->
+                <div id="igv-block" class="dynamic-block block-igv" style="display:none;">
+                    <div class="dynamic-block-title">Desglose IGV</div>
+                    <div class="form-row">
+                        <label>Tasa IGV (%)</label>
+                        <div class="igv-tasa-group">
+                            <input type="number" id="gi-igv-tasa" value="18" min="0" max="100"
+                                step="1" oninput="recalcularIGV()">
+                            <div class="igv-shortcuts">
+                                <button type="button" class="btn-igv-shortcut" onclick="document.getElementById('gi-igv-tasa').value=0; recalcularIGV()">0%</button>
+                                <button type="button" class="btn-igv-shortcut" onclick="document.getElementById('gi-igv-tasa').value=10; recalcularIGV()">10%</button>
+                                <button type="button" class="btn-igv-shortcut active" onclick="document.getElementById('gi-igv-tasa').value=18; recalcularIGV()">18%</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="form-row igv-calc-row">
+                        <div class="igv-calc-item">
+                            <label>Base Imponible</label>
+                            <input type="number" id="gi-igv-base" readonly placeholder="0.00">
+                        </div>
+                        <div class="igv-calc-item">
+                            <label>IGV</label>
+                            <input type="number" id="gi-igv-monto" readonly placeholder="0.00">
+                        </div>
+                    </div>
                 </div>
 
                 <!-- Pagado a general (para egresos no-ingreso) -->
@@ -385,10 +427,13 @@
                             <th>Fecha</th>
                             <th>Tipo Doc.</th>
                             <th>N° Documento</th>
+                            <th>RUC / Razón Social</th>
                             <th>Concepto</th>
-                            <th>Pagado a</th>
-                            <th>Monto</th>
-                            <th>Voucher / Sel.</th>
+                            <th style="width:60px">Tasa</th>
+                            <th>Base Imp.</th>
+                            <th>IGV</th>
+                            <th>Total</th>
+                            <th>Voucher</th>
                             <th>Acción</th>
                         </tr>
                     </thead>
@@ -420,6 +465,19 @@
                     <option value="EGRESO">Egreso</option>
                     <option value="INGRESO">Ingreso</option>
                 </select>
+            </div>
+            <div class="form-group">
+                <label>Tasa IGV Default (%)</label>
+                <div class="igv-tasa-group">
+                    <input type="number" id="acc-igv" value="18" min="0" max="100" step="1"
+                        placeholder="0–100">
+                    <div class="igv-shortcuts">
+                        <button type="button" class="btn-igv-shortcut" onclick="document.getElementById('acc-igv').value=0">0%</button>
+                        <button type="button" class="btn-igv-shortcut" onclick="document.getElementById('acc-igv').value=10">10%</button>
+                        <button type="button" class="btn-igv-shortcut active" onclick="document.getElementById('acc-igv').value=18">18%</button>
+                    </div>
+                </div>
+                <small class="form-hint">Aplicado automáticamente al registrar una Factura con esta categoría. Puede modificarse por movimiento.</small>
             </div>
             <div class="modal-footer">
                 <button class="btn-confirm" onclick="saveAccount()">Guardar</button>

@@ -1,7 +1,7 @@
 /**
  * ============================================================
  * KONNECT — Petty Cash ERP | script.js
- * Versión: 2.1 — Conciliation Ready
+ * Versión: 3.0 — IGV & SUNAT Ready
  * ============================================================
  *
  * BUGS CORREGIDOS EN ESTA VERSIÓN:
@@ -30,8 +30,8 @@
 // 1. CUENTAS FIJAS DE SISTEMA (no editables por el usuario)
 // ─────────────────────────────────────────────────────────────
 const CUENTAS_FIJAS = [
-    { id: '102.01', name: 'Ingreso Caja Chica',   type: 'INGRESO', fixed: true },
-    { id: '602.01', name: 'Reembolso Caja Chica',  type: 'EGRESO',  fixed: true }
+    { id: '102.01', name: 'Ingreso Caja Chica',  type: 'INGRESO', fixed: true, afectaArqueo: false },
+    { id: '602.01', name: 'Reembolso Caja Chica', type: 'EGRESO',  fixed: true, afectaArqueo: true  }
 ];
 
 // ─────────────────────────────────────────────────────────────
@@ -328,6 +328,9 @@ window.renderCuentas = function() {
                 <td>
                     <span class="badge-type badge-${acc.type.toLowerCase()}">${acc.type}</span>
                 </td>
+                <td class="amount-cell">
+                    ${acc.fixed ? '—' : (typeof acc.tasaIGVDefault === 'number' ? `${acc.tasaIGVDefault}%` : '18%')}
+                </td>
                 <td>
                     ${acc.fixed
                         ? '<span class="text-muted">—</span>'
@@ -335,7 +338,7 @@ window.renderCuentas = function() {
                     }
                 </td>
             </tr>`).join('')
-        : '<tr><td colspan="4" class="empty-row">Sin cuentas que coincidan.</td></tr>';
+        : '<tr><td colspan="5" class="empty-row">Sin cuentas que coincidan.</td></tr>';
 };
 
 /** Filtra la tabla de cuentas en tiempo real */
@@ -345,9 +348,10 @@ window.filterCuentas = function() {
 
 /** Abre el modal de nueva cuenta */
 window.openAccountModal = function() {
-    document.getElementById('acc-code').value = '';
-    document.getElementById('acc-name').value = '';
-    document.getElementById('acc-type').value = 'EGRESO';
+    document.getElementById('acc-code').value     = '';
+    document.getElementById('acc-name').value     = '';
+    document.getElementById('acc-type').value     = 'EGRESO';
+    document.getElementById('acc-igv').value      = '18';
     document.getElementById('modal-cuenta').style.display = 'flex';
 };
 
@@ -356,16 +360,19 @@ window.saveAccount = function() {
     const id   = document.getElementById('acc-code').value.trim();
     const name = document.getElementById('acc-name').value.trim();
     const type = document.getElementById('acc-type').value;
+    const igv  = parseInt(document.getElementById('acc-igv').value);
 
     if (!id)   return showToast('El código contable es obligatorio.', 'warning');
     if (!name) return showToast('El nombre de la cuenta es obligatorio.', 'warning');
+    if (isNaN(igv) || igv < 0 || igv > 100)
+        return showToast('La tasa IGV debe ser un número entre 0 y 100.', 'warning');
 
     const allAccounts = [...CUENTAS_FIJAS, ...db.chartOfAccounts];
     if (allAccounts.find(a => a.id === id)) {
         return showToast(`El código ${id} ya existe.`, 'error');
     }
 
-    db.chartOfAccounts.push({ id, name, type, fixed: false });
+    db.chartOfAccounts.push({ id, name, type, fixed: false, tasaIGVDefault: igv });
     saveToLocalStorage();
     window.closeModal('modal-cuenta');
     window.renderCuentas();
@@ -464,25 +471,34 @@ window.handleCategoryChange = function() {
     const montoInput   = document.getElementById('gi-monto');
     const pagadoARow   = document.getElementById('pagado-a-container');
 
-    const showIngreso  = val === '102.01';
-    const showReemb    = val === '602.01';
-    // Egreso genérico: cualquier cuenta distinta de las dos fijas
+    const showIngreso   = val === '102.01';
+    const showReemb     = val === '602.01';
     const showEgresoDoc = !showIngreso && !showReemb && val !== '';
 
     document.getElementById('dynamic-fields-container').style.display  = showIngreso   ? 'block' : 'none';
-    document.getElementById('voucher-input-container').style.display   = showReemb    ? 'block' : 'none';
+    document.getElementById('voucher-input-container').style.display   = showReemb     ? 'block' : 'none';
     document.getElementById('egreso-doc-container').style.display      = showEgresoDoc ? 'block' : 'none';
 
-    // Para reembolso: el monto se calcula automáticamente por voucher
+    // Pre-cargar tasa IGV default de la categoría seleccionada
+    const allAccounts = [...CUENTAS_FIJAS, ...db.chartOfAccounts];
+    const cuenta = allAccounts.find(c => c.id === val);
+    const igvInput = document.getElementById('gi-igv-tasa');
+    if (igvInput && cuenta && typeof cuenta.tasaIGVDefault === 'number') {
+        igvInput.value = cuenta.tasaIGVDefault;
+    } else if (igvInput) {
+        igvInput.value = 18; // default razonable
+    }
+    // Ocultar bloque IGV hasta que el usuario seleccione tipoDoc = FACTURA
+    const igvBlock = document.getElementById('igv-block');
+    if (igvBlock) igvBlock.style.display = 'none';
+    recalcularIGV();
+
     montoInput.readOnly = showReemb;
     montoInput.style.background = showReemb ? '#f0f0f0' : '';
     montoInput.value = showReemb ? '' : montoInput.value;
 
-    // Ocultar "Pagado a" general cuando se muestra el bloque de ingreso
-    // (que ya incluye su propio campo "Pagado a")
     if (pagadoARow) pagadoARow.style.display = showIngreso ? 'none' : 'flex';
 
-    // Limpiar status de voucher
     const vStatus = document.getElementById('voucher-status');
     if (vStatus) { vStatus.textContent = ''; vStatus.className = 'voucher-status'; }
 };
@@ -543,106 +559,243 @@ window.validateVoucherRealTime = function() {
     }
 };
 
+// ─────────────────────────────────────────────────────────────
+// 7b. IGV Y SUNAT
+// ─────────────────────────────────────────────────────────────
+
 /**
- * Guarda la transacción.
- * CORRECCIÓN CLAVE: se almacena el campo `category` en cada movimiento,
- * campo que faltaba en la versión original y que es el pivote de toda la lógica.
+ * Muestra u oculta el bloque IGV según el tipo de documento seleccionado.
+ * Solo visible cuando tipoDoc = FACTURA.
+ * Se llama desde onchange en cualquier selector de tipoDoc.
  */
+window.onTipoDocChange = function(selectEl) {
+    const igvBlock = document.getElementById('igv-block');
+    if (!igvBlock) return;
+    const esFactura = selectEl.value === 'FACTURA';
+    igvBlock.style.display = esFactura ? 'block' : 'none';
+    if (!esFactura) {
+        // Limpiar campos calculados si no es factura
+        const base = document.getElementById('gi-igv-base');
+        const monto = document.getElementById('gi-igv-monto');
+        if (base)  base.value = '';
+        if (monto) monto.value = '';
+    } else {
+        recalcularIGV();
+    }
+};
+
+/**
+ * Recalcula Base Imponible e IGV en tiempo real.
+ * Base = Total / (1 + tasa/100)
+ * IGV  = Total − Base
+ */
+window.recalcularIGV = function() {
+    const igvBlock = document.getElementById('igv-block');
+    if (!igvBlock || igvBlock.style.display === 'none') return;
+
+    const total = parseFloat(document.getElementById('gi-monto')?.value || 0);
+    const tasa  = parseInt(document.getElementById('gi-igv-tasa')?.value || 0);
+    const baseEl  = document.getElementById('gi-igv-base');
+    const montoEl = document.getElementById('gi-igv-monto');
+
+    if (!baseEl || !montoEl) return;
+
+    if (isNaN(total) || total <= 0 || isNaN(tasa) || tasa < 0) {
+        baseEl.value  = '';
+        montoEl.value = '';
+        return;
+    }
+
+    const base = total / (1 + tasa / 100);
+    const igv  = total - base;
+    baseEl.value  = base.toFixed(2);
+    montoEl.value = igv.toFixed(2);
+};
+
+/**
+ * Stub de integración con SUNAT API.
+ * En producción: fetch real al endpoint de consulta RUC.
+ * Aquí simula la respuesta con un pequeño delay.
+ */
+window.lookupRUC = async function(inputEl) {
+    const ruc = inputEl.value.trim();
+    const statusEl = document.getElementById('ruc-status');
+    const razonEl  = document.getElementById('gi-razon-social');
+    if (!statusEl || !razonEl) return;
+
+    if (ruc.length !== 11 || !/^\d{11}$/.test(ruc)) {
+        statusEl.textContent = '';
+        statusEl.className = 'ruc-status';
+        razonEl.value = '';
+        razonEl.readOnly = false;
+        return;
+    }
+
+    statusEl.textContent = '⏳ Consultando SUNAT…';
+    statusEl.className = 'ruc-status ruc-loading';
+    razonEl.value = '';
+    razonEl.readOnly = true;
+
+    try {
+        // ── STUB: reemplazar por fetch real en producción ──
+        // const res  = await fetch(`/api/sunat/ruc/${ruc}`);
+        // const data = await res.json();
+        await new Promise(r => setTimeout(r, 600)); // simula latencia
+        const mockData = {
+            '20100113610': { razonSocial: 'ALICORP S.A.A.', activo: true },
+            '20131312955': { razonSocial: 'SAGA FALABELLA S.A.', activo: true },
+        };
+        const data = mockData[ruc] || null;
+        // ──────────────────────────────────────────────────
+
+        if (!data) {
+            statusEl.textContent = '✕ RUC no encontrado';
+            statusEl.className = 'ruc-status ruc-invalid';
+            razonEl.readOnly = false;
+        } else if (!data.activo) {
+            statusEl.textContent = '⚠ Contribuyente inactivo';
+            statusEl.className = 'ruc-status ruc-warn';
+            razonEl.value    = data.razonSocial;
+            razonEl.readOnly = false;
+        } else {
+            statusEl.textContent = '✔ Encontrado';
+            statusEl.className = 'ruc-status ruc-valid';
+            razonEl.value    = data.razonSocial;
+            razonEl.readOnly = true;
+        }
+    } catch (e) {
+        statusEl.textContent = '⚠ Error al consultar SUNAT';
+        statusEl.className = 'ruc-status ruc-warn';
+        razonEl.readOnly = false;
+    }
+};
+
+
 window.saveGeneralTransaction = function() {
-    // Determinar la caja destino
-    const esOtraCaja    = document.getElementById('ref-otro').checked;
-    const targetId      = esOtraCaja
+    const esOtraCaja = document.getElementById('ref-otro').checked;
+    const targetId   = esOtraCaja
         ? parseInt(document.getElementById('gi-usuario-otro').value)
         : activeAgencyId;
 
-    const agencia       = db.agencies.find(a => a.id === targetId);
-    const cat           = document.getElementById('gi-categoria').value;
-    const monto         = parseFloat(document.getElementById('gi-monto').value);
-    const fecha         = document.getElementById('gi-fecha').value;
+    const agencia = db.agencies.find(a => a.id === targetId);
+    const cat     = document.getElementById('gi-categoria').value;
+    const monto   = parseFloat(document.getElementById('gi-monto').value);
+    const fecha   = document.getElementById('gi-fecha').value;
 
-    // Validaciones
     if (!agencia) return showToast('Caja destino no encontrada.', 'error');
     if (!fecha)   return showToast('La fecha es obligatoria.', 'warning');
     if (isNaN(monto) || monto <= 0) return showToast('Ingrese un monto válido mayor a 0.', 'warning');
 
-    // Construir objeto de movimiento
+    // Determinar afectaArqueo desde el catálogo
+    const allAccounts  = [...CUENTAS_FIJAS, ...db.chartOfAccounts];
+    const cuentaDef    = allAccounts.find(c => c.id === cat);
+    const afectaArqueo = cuentaDef ? (cuentaDef.afectaArqueo !== false) : true;
+
     const mov = {
-        id:          Date.now(),
-        date:        fecha,
-        category:    cat,   // ← CAMPO CRÍTICO que faltaba en v1
-        type:        cat === '102.01' ? 'INGRESO' : 'EGRESO',
-        amount:      monto,
-        obs:         document.getElementById('gi-obs').value.trim()
+        id:           Date.now(),
+        date:         fecha,
+        category:     cat,
+        type:         cat === '102.01' ? 'INGRESO' : 'EGRESO',
+        afectaArqueo,
+        amount:       monto,
+        obs:          document.getElementById('gi-obs').value.trim()
     };
 
     if (cat === '102.01') {
-        // Ingreso a caja chica: requiere datos de comprobante
-        const concepto = document.getElementById('gi-concepto').value.trim();
-        const serie    = document.getElementById('gi-serie').value.trim();
-        const correl   = document.getElementById('gi-correlativo').value.trim();
-        const pagadoA  = document.getElementById('gi-pagado-a-ingreso').value.trim();
-        const tipoDoc  = document.getElementById('gi-tipo-doc').value;
+        const tipoDoc   = document.getElementById('gi-tipo-doc').value;
+        const serie     = document.getElementById('gi-serie').value.trim();
+        const correl    = document.getElementById('gi-correlativo').value.trim();
+        const concepto  = document.getElementById('gi-concepto').value.trim();
+        const pagadoA   = document.getElementById('gi-pagado-a-ingreso').value.trim();
+        const ruc       = document.getElementById('gi-ruc-emisor')?.value.trim() || '';
+        const razon     = document.getElementById('gi-razon-social')?.value.trim() || '';
 
-        if (!concepto) return showToast('El concepto es obligatorio para ingresos.', 'warning');
+        if (!concepto) return showToast('El concepto es obligatorio.', 'warning');
         if (!pagadoA)  return showToast('El campo "Pagado a" es obligatorio.', 'warning');
 
-        Object.assign(mov, { tipoDoc, serie, correlativo: correl, concepto, pagadoA, voucherId: null });
+        Object.assign(mov, { tipoDoc, serie, correlativo: correl, concepto, pagadoA,
+                              rucEmisor: ruc, razonSocialEmisor: razon, voucherId: null });
 
     } else if (cat === '602.01') {
-        // Reembolso: requiere voucher válido
         const folio    = document.getElementById('gi-voucher-ref').value.trim();
         const statusEl = document.getElementById('voucher-status');
 
         if (!folio) return showToast('Ingrese el N° de Voucher para el reembolso.', 'warning');
-        if (statusEl.classList.contains('voucher-invalid')) {
+        if (statusEl.classList.contains('voucher-invalid'))
             return showToast('El voucher ingresado no existe.', 'error');
-        }
-        if (statusEl.classList.contains('voucher-warn')) {
+        if (statusEl.classList.contains('voucher-warn'))
             return showToast('El voucher ya fue reembolsado anteriormente.', 'error');
-        }
+
+        // Marcar todos los 102.01 de ese voucher como liquidados
+        db.agencies.forEach(ag => {
+            ag.movements.forEach(m => {
+                if (m.voucherId === folio && m.category === '102.01') {
+                    m.liquidado = true;
+                    m.fechaReembolso = fecha;
+                }
+            });
+        });
 
         Object.assign(mov, { voucherId: folio, concepto: 'Reembolso de caja chica', pagadoA: '' });
 
     } else {
-        // Egreso genérico con comprobante obligatorio
-        const pagadoA   = document.getElementById('gi-pagado-a').value.trim();
-        const tipoDoc   = document.getElementById('gi-egreso-tipo-doc').value;
-        const serie     = document.getElementById('gi-egreso-serie').value.trim();
-        const correl    = document.getElementById('gi-egreso-correlativo').value.trim();
-        const concepto  = document.getElementById('gi-egreso-concepto').value.trim();
+        const tipoDoc  = document.getElementById('gi-egreso-tipo-doc').value;
+        const serie    = document.getElementById('gi-egreso-serie').value.trim();
+        const correl   = document.getElementById('gi-egreso-correlativo').value.trim();
+        const concepto = document.getElementById('gi-egreso-concepto').value.trim();
+        const pagadoA  = document.getElementById('gi-pagado-a').value.trim();
 
-        if (!pagadoA) return showToast('El campo "Pagado a" es obligatorio.', 'warning');
-        if (!correl)  return showToast('El N° de documento es obligatorio en todo egreso.', 'warning');
+        if (!pagadoA)  return showToast('El campo "Pagado a" es obligatorio.', 'warning');
+        if (!correl)   return showToast('El N° de documento es obligatorio en todo egreso.', 'warning');
         if (!concepto) return showToast('El concepto es obligatorio.', 'warning');
 
         Object.assign(mov, { tipoDoc, serie, correlativo: correl, concepto, pagadoA });
     }
 
-    // Centro de costo (opcional, aplica a todos los tipos)
-    const centroCosto = document.getElementById('gi-centro-costo')?.value.trim();
-    if (centroCosto) mov.centroCosto = centroCosto;
+    // IGV — solo cuando tipoDoc = FACTURA y el bloque está visible
+    const igvBlock = document.getElementById('igv-block');
+    if (igvBlock && igvBlock.style.display !== 'none') {
+        const tasa = parseInt(document.getElementById('gi-igv-tasa')?.value || 0);
+        const base = parseFloat(document.getElementById('gi-igv-base')?.value || 0);
+        const igv  = parseFloat(document.getElementById('gi-igv-monto')?.value || 0);
+        if (!isNaN(tasa)) {
+            mov.tasaIGV  = tasa;
+            mov.montoBase = parseFloat(base.toFixed(2));
+            mov.montoIGV  = parseFloat(igv.toFixed(2));
+            mov.montoTotal = monto;
+        }
+    }
+
+    // Centro de costo (opcional)
+    const cc = document.getElementById('gi-centro-costo')?.value.trim();
+    if (cc) mov.centroCosto = cc;
 
     agencia.movements.push(mov);
     saveToLocalStorage();
-
     showToast('Transacción registrada correctamente.', 'success');
-
-    // Limpiar el formulario
     resetGastosForm();
     window.showSection('view-admin-global', null);
+    window.updateVoucherBadge();
 };
 
 /** Limpia el formulario de gastos tras guardar */
 function resetGastosForm() {
     ['gi-concepto', 'gi-serie', 'gi-correlativo', 'gi-obs',
      'gi-pagado-a', 'gi-pagado-a-ingreso', 'gi-voucher-ref', 'gi-monto',
-     'gi-egreso-serie', 'gi-egreso-correlativo', 'gi-egreso-concepto', 'gi-centro-costo']
+     'gi-egreso-serie', 'gi-egreso-correlativo', 'gi-egreso-concepto',
+     'gi-centro-costo', 'gi-ruc-emisor', 'gi-razon-social',
+     'gi-igv-tasa', 'gi-igv-base', 'gi-igv-monto']
         .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+
+    const rucStatus = document.getElementById('ruc-status');
+    if (rucStatus) { rucStatus.textContent = ''; rucStatus.className = 'ruc-status'; }
 
     document.getElementById('gi-tipo-trans').value = 'EGRESO';
     document.getElementById('ref-propio').checked  = true;
-    document.getElementById('user-selector-container').style.display  = 'none';
-    document.getElementById('egreso-doc-container').style.display     = 'none';
+    document.getElementById('user-selector-container').style.display = 'none';
+    document.getElementById('egreso-doc-container').style.display    = 'none';
+    const igvBlock = document.getElementById('igv-block');
+    if (igvBlock) igvBlock.style.display = 'none';
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -660,26 +813,51 @@ window.viewHistory = function(id) {
 
     document.getElementById('history-agency-name').textContent = a.name;
 
-    // Solo movimientos de cuentas de caja chica (102.01 y 602.01)
     const movCC = a.movements.filter(m =>
         m.category === '102.01' || m.category === '602.01'
     );
 
     const deudaTotal = movCC
-        .filter(m => m.category === '102.01' && !m.voucherId)
+        .filter(m => m.category === '102.01' && !m.voucherId && m.estado !== 'ANULADO')
         .reduce((s, m) => s + parseFloat(m.amount || 0), 0);
 
     const tbody = document.getElementById('tbody-history');
 
     tbody.innerHTML = movCC.length
-        ? movCC.map((m, i) => {
+        ? movCC.map(m => {
             const esIngreso = m.category === '102.01';
-            const docNum    = (m.serie && m.correlativo)
-                ? `${m.serie}–${m.correlativo}`
-                : (m.correlativo || '—');
-
             const esAnulado = m.estado === 'ANULADO';
             const rowClass  = esAnulado ? 'row-anulado' : (esIngreso ? '' : 'row-reembolso');
+            const docNum    = (m.serie && m.correlativo) ? `${m.serie}–${m.correlativo}` : (m.correlativo || '—');
+
+            // Estado del voucher con fecha de reembolso
+            let voucherCell = '';
+            if (esAnulado) {
+                voucherCell = `<span class="badge-type badge-anulado" style="font-size:10px;">—</span>`;
+            } else if (esIngreso && !m.voucherId) {
+                voucherCell = `<input type="checkbox" class="chk-reem"
+                    data-idx="${a.movements.indexOf(m)}"
+                    data-amount="${m.amount}"
+                    onchange="updateTotalSelected()">`;
+            } else if (esIngreso && m.voucherId && !m.liquidado) {
+                voucherCell = `<span class="badge-voucher" style="background:var(--warning);color:#fff;">${escHtml(m.voucherId)}</span>
+                               <span class="badge-pending">Pendiente</span>`;
+            } else if (esIngreso && m.voucherId && m.liquidado) {
+                const fechaR = m.fechaReembolso ? `<br><small class="text-muted">Reembolsado: ${m.fechaReembolso}</small>` : '';
+                voucherCell = `<span class="badge-voucher badge-voucher-ok">${escHtml(m.voucherId)}</span>${fechaR}`;
+            } else if (!esIngreso && m.voucherId) {
+                voucherCell = `<span class="badge-voucher badge-voucher-ok">${escHtml(m.voucherId)}</span>`;
+            } else {
+                voucherCell = '—';
+            }
+
+            // IGV columns (solo para FACTURA)
+            const esFactura   = m.tipoDoc === 'FACTURA';
+            const baseDisplay = esFactura && m.montoBase  != null ? `$${parseFloat(m.montoBase).toLocaleString('es-CL')}` : '—';
+            const igvDisplay  = esFactura && m.montoIGV   != null ? `$${parseFloat(m.montoIGV).toLocaleString('es-CL')}` : '—';
+            const tasaDisplay = esFactura && m.tasaIGV    != null ? `${m.tasaIGV}%` : '—';
+
+            const montoDisplay = `$${parseFloat(m.amount || 0).toLocaleString('es-CL')}`;
 
             return `
             <tr class="row-hover ${rowClass}">
@@ -693,54 +871,37 @@ window.viewHistory = function(id) {
                     }
                 </td>
                 <td><code>${docNum}</code></td>
+                <td class="col-ruc">
+                    ${escHtml(m.rucEmisor || '—')}
+                    ${m.razonSocialEmisor ? `<br><small class="text-muted">${escHtml(m.razonSocialEmisor)}</small>` : ''}
+                </td>
                 <td>
                     ${escHtml(m.concepto || m.obs || '—')}
                     ${esAnulado ? `<br><small class="text-anulado">Motivo: ${escHtml(m.motivoAnulacion || '—')}</small>` : ''}
                 </td>
-                <td>${escHtml(m.pagadoA || '—')}</td>
+                <td class="amount-cell">${tasaDisplay}</td>
+                <td class="amount-cell">${baseDisplay}</td>
+                <td class="amount-cell">${igvDisplay}</td>
                 <td class="amount-cell ${esAnulado ? 'text-anulado' : ''}">
-                    ${esAnulado ? '<s>' : ''}$${parseFloat(m.amount || 0).toLocaleString('es-CL')}${esAnulado ? '</s>' : ''}
+                    ${esAnulado ? `<s>${montoDisplay}</s>` : montoDisplay}
                 </td>
-                <td>
-                    ${esAnulado
-                        ? `<span class="badge-type badge-anulado" style="font-size:10px;">—</span>`
-                        : m.voucherId && m.category === '102.01' && !m.liquidado
-                            ? `<span class="badge-voucher" style="background:var(--warning);color:#fff;">${escHtml(m.voucherId)}</span>
-                               <span class="badge-pending">Pendiente</span>`
-                            : m.voucherId && m.category === '102.01' && m.liquidado
-                                ? `<span class="badge-voucher">${escHtml(m.voucherId)}</span>`
-                                : m.voucherId && m.category === '602.01'
-                                    ? `<span class="badge-voucher">${escHtml(m.voucherId)}</span>`
-                                    : esIngreso
-                                        ? `<input type="checkbox"
-                                                class="chk-reem"
-                                                data-idx="${a.movements.indexOf(m)}"
-                                                data-amount="${m.amount}"
-                                                onchange="updateTotalSelected()">`
-                                        : '—'
-                    }
-                </td>
+                <td>${voucherCell}</td>
                 <td>
                     ${esAnulado
                         ? '<span class="text-muted" style="font-size:11px;">Anulado</span>'
-                        : `<button class="btn-sm btn-anular"
-                                onclick="abrirModalAnular(${id}, ${m.id})">
-                            Anular
-                           </button>`
+                        : `<button class="btn-sm btn-anular" onclick="abrirModalAnular(${id}, ${m.id})">Anular</button>`
                     }
                 </td>
             </tr>`;
         }).join('')
-        : '<tr><td colspan="7" class="empty-row">Sin movimientos de caja chica registrados.</td></tr>';
+        : '<tr><td colspan="11" class="empty-row">Sin movimientos de caja chica registrados.</td></tr>';
 
-    // Footer del modal
     document.querySelector('.modal-buttons-history').innerHTML = `
         <div class="history-footer-info">
             <span>Deuda pendiente:</span>
             <strong class="amount-danger">$${deudaTotal.toLocaleString('es-CL')}</strong>
             <span style="margin-left:10px;">Monto a reembolsar:</span>
-            <input type="number" id="manual-reem-amount" value="0"
-                class="reem-amount-input" readonly>
+            <input type="number" id="manual-reem-amount" value="0" class="reem-amount-input" readonly>
         </div>
         <div class="history-footer-actions">
             <button class="btn-confirm" onclick="procesarReembolso(${id})">Generar Voucher</button>
@@ -750,6 +911,8 @@ window.viewHistory = function(id) {
 
     document.getElementById('modal-history').style.display = 'flex';
 };
+
+
 
 /** Actualiza el campo de total cuando se marcan/desmarcan checkboxes */
 window.updateTotalSelected = function() {
@@ -870,11 +1033,18 @@ window.renderArqueo = function() {
     let   egresosTotales = 0;
     let   ingresosExtra  = 0;
 
-    // ── TODOS los movimientos de esta caja, sin filtro de categoría ──
-    const todosMovimientos = agencia.movements;
-
     // Catálogo completo para resolver nombres de cuenta
     const allAccounts = [...CUENTAS_FIJAS, ...db.chartOfAccounts];
+
+    // ── Solo movimientos que afectan el arqueo del cajero ──
+    // 102.01 (afectaArqueo: false) NO aparece — no toca la caja de ventas.
+    // 602.01 (afectaArqueo: true)  SÍ aparece — sale de la caja de ventas.
+    const todosMovimientos = agencia.movements.filter(m => {
+        if (m.estado === 'ANULADO') return false;
+        const cuenta = allAccounts.find(c => c.id === m.category);
+        if (cuenta && cuenta.afectaArqueo === false) return false;
+        return true;
+    });
     const getNombreCuenta = (catId) => {
         const cuenta = allAccounts.find(c => c.id === catId);
         return cuenta ? cuenta.name : catId;
