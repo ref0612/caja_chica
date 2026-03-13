@@ -47,7 +47,7 @@
         </nav>
 
         <div class="sidebar-footer">
-            <div class="sidebar-version">v3.0 — IGV & SUNAT Ready</div>
+            <div class="sidebar-version">v3.1 — Subcategoria Caja Chica</div>
         </div>
     </aside>
 
@@ -166,9 +166,15 @@
                     <select id="gi-categoria" onchange="handleCategoryChange()"></select>
                 </div>
 
-                <!-- Bloque dinámico: Ingreso Caja Chica (102.01) -->
+                <!-- Bloque dinámico: Gasto Caja Chica (102.01) -->
                 <div id="dynamic-fields-container" class="dynamic-block block-ingreso" style="display:none;">
                     <div class="dynamic-block-title">Datos del Comprobante</div>
+
+                    <!-- Subcategoría: tipo de gasto operativo -->
+                    <div id="subcategoria-container" class="form-row" style="display:none;">
+                        <label>Subcategoría*</label>
+                        <select id="gi-subcategoria" onchange="onSubcategoriaChange()"></select>
+                    </div>
                     <div class="form-row">
                         <label>RUC Emisor*</label>
                         <div class="voucher-input-group">
@@ -198,10 +204,6 @@
                             <span class="doc-separator">–</span>
                             <input type="text" id="gi-correlativo" placeholder="Número correlativo">
                         </div>
-                    </div>
-                    <div class="form-row">
-                        <label>Concepto*</label>
-                        <input type="text" id="gi-concepto" placeholder="Descripción del gasto">
                     </div>
                     <div class="form-row">
                         <label>Pagado a*</label>

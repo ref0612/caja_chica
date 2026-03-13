@@ -1,7 +1,7 @@
 /**
  * ============================================================
  * KONNECT — Petty Cash ERP | script.js
- * Versión: 3.0 — IGV & SUNAT Ready
+ * Versión: 3.1 — Subcategoria Caja Chica
  * ============================================================
  *
  * BUGS CORREGIDOS EN ESTA VERSIÓN:
@@ -30,8 +30,8 @@
 // 1. CUENTAS FIJAS DE SISTEMA (no editables por el usuario)
 // ─────────────────────────────────────────────────────────────
 const CUENTAS_FIJAS = [
-    { id: '102.01', name: 'Ingreso Caja Chica',  type: 'INGRESO', fixed: true, afectaArqueo: false },
-    { id: '602.01', name: 'Reembolso Caja Chica', type: 'EGRESO',  fixed: true, afectaArqueo: true  }
+    { id: '102.01', name: 'Gasto Caja Chica',    type: 'EGRESO', fixed: true, afectaArqueo: false, esCajaChica: true  },
+    { id: '602.01', name: 'Reembolso Caja Chica', type: 'EGRESO', fixed: true, afectaArqueo: true,  esCajaChica: false }
 ];
 
 // ─────────────────────────────────────────────────────────────
@@ -236,8 +236,9 @@ window.renderSucursales = function() {
  * @returns {number}
  */
 function calcDeudaPendiente(agency) {
+    // Deuda = gastos de caja chica (102.01) sin voucher asignado y no anulados
     return agency.movements
-        .filter(m => m.category === '102.01' && !m.voucherId)
+        .filter(m => m.category === '102.01' && !m.voucherId && m.estado !== 'ANULADO')
         .reduce((sum, m) => sum + parseFloat(m.amount || 0), 0);
 }
 
@@ -428,35 +429,44 @@ window.initGastosForm = function() {
  *  Si la caja activa tiene cajaChicaActiva === false, oculta 102.01 y 602.01.
  */
 window.renderCategoriasEnGastos = function() {
-    const select = document.getElementById('gi-categoria');
+    const select   = document.getElementById('gi-categoria');
     if (!select) return;
 
-    const tipo    = document.getElementById('gi-tipo-trans').value;
-    const agencia = db.agencies.find(a => a.id === activeAgencyId);
+    const agencia  = db.agencies.find(a => a.id === activeAgencyId);
     const ccActiva = agencia ? agencia.cajaChicaActiva !== false : true;
 
-    // Banner de aviso si la caja chica está desactivada
     const banner = document.getElementById('cc-inactiva-banner');
     if (banner) banner.style.display = ccActiva ? 'none' : 'flex';
 
-    const filtradas = [...CUENTAS_FIJAS, ...db.chartOfAccounts]
-        .filter(x => x.type === tipo)
-        .filter(x => {
-            // Si la caja chica está inactiva, excluir las cuentas de control
-            if (!ccActiva && (x.id === '102.01' || x.id === '602.01')) return false;
-            return true;
-        });
+    const tipo = document.getElementById('gi-tipo-trans')?.value || 'EGRESO';
+    const opciones = [];
 
-    if (filtradas.length === 0) {
+    if (tipo === 'EGRESO') {
+        if (ccActiva) {
+            opciones.push({ id: '102.01', label: '102.01 — Gasto Caja Chica' });
+            opciones.push({ id: '602.01', label: '602.01 — Reembolso Caja Chica' });
+        }
+        db.chartOfAccounts
+            .filter(x => x.type === 'EGRESO')
+            .forEach(x => opciones.push({ id: x.id, label: `${x.id} — ${x.name}` }));
+    } else {
+        // INGRESO — solo cuentas de ingreso del plan de cuentas del usuario
+        db.chartOfAccounts
+            .filter(x => x.type === 'INGRESO')
+            .forEach(x => opciones.push({ id: x.id, label: `${x.id} — ${x.name}` }));
+    }
+
+    if (opciones.length === 0) {
         select.innerHTML = '<option value="">— Sin categorías disponibles —</option>';
         window.handleCategoryChange();
         return;
     }
 
-    select.innerHTML = filtradas
-        .map(x => `<option value="${x.id}">${x.id} — ${escHtml(x.name)}</option>`)
+    select.innerHTML = opciones
+        .map(o => `<option value="${o.id}">${escHtml(o.label)}</option>`)
         .join('');
 
+    select.selectedIndex = 0;
     window.handleCategoryChange();
 };
 
@@ -467,40 +477,81 @@ window.renderCategoriasEnGastos = function() {
  *   Otro   → Sin bloques extra
  */
 window.handleCategoryChange = function() {
-    const val          = document.getElementById('gi-categoria').value;
-    const montoInput   = document.getElementById('gi-monto');
-    const pagadoARow   = document.getElementById('pagado-a-container');
+    const val        = document.getElementById('gi-categoria').value;
+    const montoInput = document.getElementById('gi-monto');
+    const pagadoARow = document.getElementById('pagado-a-container');
 
-    const showIngreso   = val === '102.01';
-    const showReemb     = val === '602.01';
-    const showEgresoDoc = !showIngreso && !showReemb && val !== '';
+    const esCajaChica = val === '102.01';
+    const esReembolso = val === '602.01';
+    const esGenerico  = !esCajaChica && !esReembolso && val !== '';
 
-    document.getElementById('dynamic-fields-container').style.display  = showIngreso   ? 'block' : 'none';
-    document.getElementById('voucher-input-container').style.display   = showReemb     ? 'block' : 'none';
-    document.getElementById('egreso-doc-container').style.display      = showEgresoDoc ? 'block' : 'none';
+    // Bloques dinámicos
+    document.getElementById('dynamic-fields-container').style.display  = esCajaChica ? 'block' : 'none';
+    document.getElementById('voucher-input-container').style.display   = esReembolso  ? 'block' : 'none';
+    document.getElementById('egreso-doc-container').style.display      = esGenerico   ? 'block' : 'none';
 
-    // Pre-cargar tasa IGV default de la categoría seleccionada
-    const allAccounts = [...CUENTAS_FIJAS, ...db.chartOfAccounts];
-    const cuenta = allAccounts.find(c => c.id === val);
-    const igvInput = document.getElementById('gi-igv-tasa');
-    if (igvInput && cuenta && typeof cuenta.tasaIGVDefault === 'number') {
-        igvInput.value = cuenta.tasaIGVDefault;
-    } else if (igvInput) {
-        igvInput.value = 18; // default razonable
+    // Subcategoría — solo visible para Gasto Caja Chica
+    const subBlock = document.getElementById('subcategoria-container');
+    if (subBlock) {
+        subBlock.style.display = esCajaChica ? 'flex' : 'none';
+        if (esCajaChica) renderSubcategorias();
     }
-    // Ocultar bloque IGV hasta que el usuario seleccione tipoDoc = FACTURA
+
+    // IGV default desde la subcategoría (caja chica) o la cuenta seleccionada (genérico)
+    const igvInput = document.getElementById('gi-igv-tasa');
+    if (igvInput) {
+        let tasaDefault = 18;
+        if (esGenerico) {
+            const cuenta = db.chartOfAccounts.find(c => c.id === val);
+            if (cuenta && typeof cuenta.tasaIGVDefault === 'number') tasaDefault = cuenta.tasaIGVDefault;
+        }
+        igvInput.value = tasaDefault;
+    }
+
     const igvBlock = document.getElementById('igv-block');
     if (igvBlock) igvBlock.style.display = 'none';
     recalcularIGV();
 
-    montoInput.readOnly = showReemb;
-    montoInput.style.background = showReemb ? '#f0f0f0' : '';
-    montoInput.value = showReemb ? '' : montoInput.value;
+    montoInput.readOnly = esReembolso;
+    montoInput.style.background = esReembolso ? '#f0f0f0' : '';
+    if (esReembolso) montoInput.value = '';
 
-    if (pagadoARow) pagadoARow.style.display = showIngreso ? 'none' : 'flex';
+    if (pagadoARow) pagadoARow.style.display = esCajaChica ? 'none' : 'flex';
 
     const vStatus = document.getElementById('voucher-status');
     if (vStatus) { vStatus.textContent = ''; vStatus.className = 'voucher-status'; }
+};
+
+/** Puebla el selector de subcategorías con las cuentas EGRESO del usuario */
+window.renderSubcategorias = function() {
+    const select = document.getElementById('gi-subcategoria');
+    if (!select) return;
+
+    const cuentas = db.chartOfAccounts.filter(x => x.type === 'EGRESO');
+    if (cuentas.length === 0) {
+        select.innerHTML = '<option value="">— Sin subcategorías configuradas —</option>';
+        return;
+    }
+    select.innerHTML = cuentas
+        .map(x => `<option value="${x.id}">${x.id} — ${escHtml(x.name)}</option>`)
+        .join('');
+
+    // Pre-cargar IGV default de la primera subcategoría
+    onSubcategoriaChange();
+};
+
+/** Actualiza la tasa IGV default al cambiar subcategoría */
+window.onSubcategoriaChange = function() {
+    const select  = document.getElementById('gi-subcategoria');
+    const igvInput = document.getElementById('gi-igv-tasa');
+    if (!select || !igvInput) return;
+
+    const cuenta = db.chartOfAccounts.find(c => c.id === select.value);
+    igvInput.value = (cuenta && typeof cuenta.tasaIGVDefault === 'number')
+        ? cuenta.tasaIGVDefault
+        : 18;
+
+    recalcularIGV();
 };
 
 /**
@@ -686,35 +737,51 @@ window.saveGeneralTransaction = function() {
     if (!fecha)   return showToast('La fecha es obligatoria.', 'warning');
     if (isNaN(monto) || monto <= 0) return showToast('Ingrese un monto válido mayor a 0.', 'warning');
 
-    // Determinar afectaArqueo desde el catálogo
     const allAccounts  = [...CUENTAS_FIJAS, ...db.chartOfAccounts];
     const cuentaDef    = allAccounts.find(c => c.id === cat);
     const afectaArqueo = cuentaDef ? (cuentaDef.afectaArqueo !== false) : true;
 
+    // Todos los movimientos son EGRESO — el tipo "INGRESO" se eliminó del flujo
     const mov = {
         id:           Date.now(),
         date:         fecha,
         category:     cat,
-        type:         cat === '102.01' ? 'INGRESO' : 'EGRESO',
+        type:         'EGRESO',
         afectaArqueo,
         amount:       monto,
         obs:          document.getElementById('gi-obs').value.trim()
     };
 
     if (cat === '102.01') {
-        const tipoDoc   = document.getElementById('gi-tipo-doc').value;
-        const serie     = document.getElementById('gi-serie').value.trim();
-        const correl    = document.getElementById('gi-correlativo').value.trim();
-        const concepto  = document.getElementById('gi-concepto').value.trim();
-        const pagadoA   = document.getElementById('gi-pagado-a-ingreso').value.trim();
-        const ruc       = document.getElementById('gi-ruc-emisor')?.value.trim() || '';
-        const razon     = document.getElementById('gi-razon-social')?.value.trim() || '';
+        // Gasto Caja Chica — valida umbral máximo
+        const deudaActual   = calcDeudaPendiente(agencia);
+        const totalConNuevo = deudaActual + monto;
+        const porcentaje    = agencia.fund > 0 ? (totalConNuevo / agencia.fund) * 100 : 0;
+        if (porcentaje > agencia.maxT) {
+            return showToast(
+                `Este gasto supera el límite máximo (${agencia.maxT}%). Con este monto el consumo llegaría a ${porcentaje.toFixed(1)}%.`,
+                'error', 5000
+            );
+        }
 
-        if (!concepto) return showToast('El concepto es obligatorio.', 'warning');
-        if (!pagadoA)  return showToast('El campo "Pagado a" es obligatorio.', 'warning');
+        const tipoDoc    = document.getElementById('gi-tipo-doc').value;
+        const serie      = document.getElementById('gi-serie').value.trim();
+        const correl     = document.getElementById('gi-correlativo').value.trim();
+        const pagadoA    = document.getElementById('gi-pagado-a-ingreso').value.trim();
+        const ruc        = document.getElementById('gi-ruc-emisor')?.value.trim() || '';
+        const razon      = document.getElementById('gi-razon-social')?.value.trim() || '';
+        const subcat     = document.getElementById('gi-subcategoria')?.value || '';
 
-        Object.assign(mov, { tipoDoc, serie, correlativo: correl, concepto, pagadoA,
-                              rucEmisor: ruc, razonSocialEmisor: razon, voucherId: null });
+        if (!pagadoA) return showToast('El campo "Pagado a" es obligatorio.', 'warning');
+        if (!subcat)  return showToast('Seleccione una subcategoría de gasto.', 'warning');
+
+        // El concepto se deriva del nombre de la subcategoría seleccionada
+        const subcatNombre = db.chartOfAccounts.find(c => c.id === subcat)?.name || subcat;
+        Object.assign(mov, {
+            tipoDoc, serie, correlativo: correl, concepto: subcatNombre, pagadoA,
+            rucEmisor: ruc, razonSocialEmisor: razon,
+            subcategoria: subcat, voucherId: null
+        });
 
     } else if (cat === '602.01') {
         const folio    = document.getElementById('gi-voucher-ref').value.trim();
@@ -726,11 +793,10 @@ window.saveGeneralTransaction = function() {
         if (statusEl.classList.contains('voucher-warn'))
             return showToast('El voucher ya fue reembolsado anteriormente.', 'error');
 
-        // Marcar todos los 102.01 de ese voucher como liquidados
         db.agencies.forEach(ag => {
             ag.movements.forEach(m => {
                 if (m.voucherId === folio && m.category === '102.01') {
-                    m.liquidado = true;
+                    m.liquidado      = true;
                     m.fechaReembolso = fecha;
                 }
             });
@@ -739,6 +805,7 @@ window.saveGeneralTransaction = function() {
         Object.assign(mov, { voucherId: folio, concepto: 'Reembolso de caja chica', pagadoA: '' });
 
     } else {
+        // Egreso genérico
         const tipoDoc  = document.getElementById('gi-egreso-tipo-doc').value;
         const serie    = document.getElementById('gi-egreso-serie').value.trim();
         const correl   = document.getElementById('gi-egreso-correlativo').value.trim();
@@ -759,14 +826,13 @@ window.saveGeneralTransaction = function() {
         const base = parseFloat(document.getElementById('gi-igv-base')?.value || 0);
         const igv  = parseFloat(document.getElementById('gi-igv-monto')?.value || 0);
         if (!isNaN(tasa)) {
-            mov.tasaIGV  = tasa;
+            mov.tasaIGV   = tasa;
             mov.montoBase = parseFloat(base.toFixed(2));
             mov.montoIGV  = parseFloat(igv.toFixed(2));
             mov.montoTotal = monto;
         }
     }
 
-    // Centro de costo (opcional)
     const cc = document.getElementById('gi-centro-costo')?.value.trim();
     if (cc) mov.centroCosto = cc;
 
@@ -790,10 +856,10 @@ function resetGastosForm() {
     const rucStatus = document.getElementById('ruc-status');
     if (rucStatus) { rucStatus.textContent = ''; rucStatus.className = 'ruc-status'; }
 
-    document.getElementById('gi-tipo-trans').value = 'EGRESO';
     document.getElementById('ref-propio').checked  = true;
-    document.getElementById('user-selector-container').style.display = 'none';
-    document.getElementById('egreso-doc-container').style.display    = 'none';
+    document.getElementById('user-selector-container').style.display  = 'none';
+    document.getElementById('egreso-doc-container').style.display     = 'none';
+    document.getElementById('subcategoria-container').style.display   = 'none';
     const igvBlock = document.getElementById('igv-block');
     if (igvBlock) igvBlock.style.display = 'none';
 }
@@ -859,6 +925,11 @@ window.viewHistory = function(id) {
 
             const montoDisplay = `$${parseFloat(m.amount || 0).toLocaleString('es-CL')}`;
 
+            // Resolver nombre de subcategoría para gastos de caja chica
+            const subcatNombre = (esIngreso && m.subcategoria)
+                ? (db.chartOfAccounts.find(c => c.id === m.subcategoria)?.name || m.subcategoria)
+                : null;
+
             return `
             <tr class="row-hover ${rowClass}">
                 <td><small>${m.date || '—'}</small></td>
@@ -866,7 +937,7 @@ window.viewHistory = function(id) {
                     ${esAnulado
                         ? `<span class="badge-type badge-anulado">ANULADO</span>`
                         : esIngreso
-                            ? `<span class="badge-type badge-ingreso">${m.tipoDoc || 'INGRESO'}</span>`
+                            ? `<span class="badge-type badge-ingreso">${m.tipoDoc || 'GASTO'}</span>`
                             : `<span class="badge-type badge-egreso">REEMBOLSO</span>`
                     }
                 </td>
@@ -876,7 +947,7 @@ window.viewHistory = function(id) {
                     ${m.razonSocialEmisor ? `<br><small class="text-muted">${escHtml(m.razonSocialEmisor)}</small>` : ''}
                 </td>
                 <td>
-                    ${escHtml(m.concepto || m.obs || '—')}
+                    ${subcatNombre ? `<span class="badge-subcat">${escHtml(subcatNombre)}</span> ` : ''}${escHtml(m.concepto || m.obs || '—')}
                     ${esAnulado ? `<br><small class="text-anulado">Motivo: ${escHtml(m.motivoAnulacion || '—')}</small>` : ''}
                 </td>
                 <td class="amount-cell">${tasaDisplay}</td>
@@ -1299,10 +1370,7 @@ window.renderVouchersPendientes = function() {
  * para que el cajero solo deba confirmar el monto.
  */
 window.prefillVoucher = function(voucherId) {
-    // Asegurar que estamos en tipo EGRESO y categoría 602.01
-    const tipoTrans = document.getElementById('gi-tipo-trans');
-    if (tipoTrans) { tipoTrans.value = 'EGRESO'; window.renderCategoriasEnGastos(); }
-
+    // Navegar al formulario y pre-seleccionar 602.01
     setTimeout(() => {
         const catSelect = document.getElementById('gi-categoria');
         if (catSelect) {
